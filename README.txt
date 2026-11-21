@@ -25,12 +25,18 @@ reserved separately from the software license.
 --------------------------------------------------------------------------------
 INSTALL
 --------------------------------------------------------------------------------
-There is one wheel per Python version — pick the one matching `python3 --version`:
+Easiest — from PyPI, picks the right wheel for you automatically:
+
+  pip install laminar-tessera
+
+Or pick the wheel file matching your platform/Python version directly:
 
   python3 --version
-  pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13
+  pip install laminar_tessera-0.1.2-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, macOS
   # or
-  pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl         # Python 3.11, Apple Silicon
+  pip install laminar_tessera-0.1.2-cp311-cp311-macosx_26_0_arm64.whl         # Python 3.11, macOS Apple Silicon
+  # or
+  pip install laminar_tessera-0.1.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl   # Python 3.12, Linux x86-64
 
 Verify:
   python -c "import tessera; print(tessera.engine_info())"

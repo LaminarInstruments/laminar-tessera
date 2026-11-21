@@ -3,7 +3,7 @@
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com
 
-Generated from the live public signatures of `tessera 0.1.1`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
+Generated from the live public signatures of `tessera 0.1.2`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
 
 ## tessera.agents
 

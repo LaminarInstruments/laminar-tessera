@@ -10,22 +10,33 @@ block in this document has actually been executed against the installed
 package — none of it is illustrative pseudocode.
 
 ```bash
-python3 --version                                         # check this FIRST — two wheels ship now
-pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
+pip install laminar-tessera                                # easiest: pulls the right wheel from PyPI
+python -m tessera.selftest                                 # must print "ALL SEVEN DOORS REAL"
+```
+
+Or install a specific wheel file directly:
+
+```bash
+python3 --version                                         # check this FIRST — three wheels ship now
+pip install laminar_tessera-0.1.2-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
-python -m tessera.selftest                 # must print "ALL SEVEN DOORS REAL"
+pip install laminar_tessera-0.1.2-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
+# or:
+pip install laminar_tessera-0.1.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 **Each wheel installs on exactly the Python version/platform in its
 filename, nothing else.** Verified: installing the `cp313` wheel under
 Python 3.11 fails immediately with `ERROR: ... is not a supported wheel on
 this platform` — no partial install, no fallback, just a dead stop. The
-`cp311` wheel was rebuilt from source specifically to prove that path works
-(see README's REBUILD section) — it's real, verified, but `arm64`-only and
-tagged to one specific macOS version, not a general fix. If you're not on
-3.11 (Apple Silicon) or 3.13, you need to rebuild for your own
-version/platform before any of the rest of this document is reachable.
+`cp311` macOS wheel and the `cp312` manylinux2014 Linux wheel were each
+built and verified from source specifically to prove those paths work (see
+README's REBUILD section) — they're real, tested (the Linux wheel was
+verified inside an actual manylinux_2_28 container: selftest, all four
+`apps/` suites, and the real `SIGKILL` crash-recovery harness all pass),
+but still only cover what's listed above. If your platform/Python version
+isn't one of the three, you need to rebuild before any of the rest of
+this document is reachable.
 
 ---
 

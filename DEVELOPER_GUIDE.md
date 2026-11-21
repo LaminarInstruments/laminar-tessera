@@ -17,26 +17,29 @@ self-test (`python -m tessera.selftest`).
 
 ## Install
 
-This is a proprietary wheel, not a PyPI package — install the `.whl` file
-directly (it is not `pip install laminar-tessera`, which would try PyPI and
-fail):
+It's a proprietary package, source-protected, but it IS published to PyPI —
+`pip install laminar-tessera` works and pulls the right wheel for your
+platform automatically. Or install a specific wheel file directly:
 
 ```bash
 python3 --version   # check first — there's more than one wheel now
-pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13
+pip install laminar_tessera-0.1.2-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, macOS
 # or:
-pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
+pip install laminar_tessera-0.1.2-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
+# or:
+pip install laminar_tessera-0.1.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 Zero third-party dependencies. The *source* supports Python 3.9+, but **each
 prebuilt wheel only installs on the exact CPython version/platform in its
 filename** (verified: the `cp313` wheel fails outright on 3.11 with `"is not
-a supported wheel on this platform"`). The `cp311` wheel was produced by
-rebuilding from `src/` on this machine, proving the rebuild path works — but
-it's `arm64`-only and tagged to this machine's macOS version, not tested
-elsewhere. For any other Python version or OS, rebuild from `src/` per the
-README's REBUILD section, or ship a wheel per target via `cibuildwheel`
-(neither shipped wheel here was built that way).
+a supported wheel on this platform"`). The `cp311` macOS wheel and the
+`cp312` manylinux2014 Linux wheel were each produced by rebuilding from
+`src/`, proving the rebuild path works for more than one platform — the
+Linux wheel was verified inside an actual manylinux_2_28 container (self-test,
+all four `apps/` suites, and the real `SIGKILL` crash-recovery harness all
+pass there). For any other Python version or OS, rebuild from `src/` per the
+README's REBUILD section, or ship a wheel per target via `cibuildwheel`.
 
 ```python
 import tessera
