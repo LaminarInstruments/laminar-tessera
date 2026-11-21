@@ -18,11 +18,11 @@ Or install a specific wheel file directly. **Three wheels ship; never glob
 them together (`*.whl`) — pick the one matching `python3 --version` and OS:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.2-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.1.3-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.2-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.3-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 Each wheel is built for exactly the CPython version/platform in its
 filename — verified to fail outright on any other with "not a supported
