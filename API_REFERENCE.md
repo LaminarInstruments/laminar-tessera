@@ -3,7 +3,7 @@
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com
 
-Generated from the live public signatures of `tessera 0.1.0`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
+Generated from the live public signatures of `tessera 0.1.1`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
 
 ## tessera.agents
 
@@ -197,7 +197,7 @@ A named thing an agent can run.
 
 ### `class AdaptiveBaseline`
 Learn what normal looks like, and let it move — first public door onto the
-engine's D4 (feedback/EMA) and ENT (entropy-baseline) opcodes.
+engine's adaptive feedback (EMA) and entropy-baseline capability.
 
 - `__init__(self, name, persistence=None, _spu=None)`
 - `amplify(self, gain)`

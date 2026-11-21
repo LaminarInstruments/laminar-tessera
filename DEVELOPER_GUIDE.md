@@ -23,9 +23,9 @@ fail):
 
 ```bash
 python3 --version   # check first — there's more than one wheel now
-pip install laminar_tessera-0.1.0-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13
+pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13
 # or:
-pip install laminar_tessera-0.1.0-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
+pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
 ```
 
 Zero third-party dependencies. The *source* supports Python 3.9+, but **each

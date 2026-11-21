@@ -1,59 +1,64 @@
-laminar-tessera 0.1.0  —  source-protected SDK (patent(s) pending)
+================================================================================
+  TESSERA  —  by Laminar Instruments
+================================================================================
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
-darreck@laminarinstruments.com · laminarinstruments.com
+darreck@laminarinstruments.com  ·  laminarinstruments.com  ·  Patent(s) pending.
+--------------------------------------------------------------------------------
 
-FREE TO USE, including commercially, while you're building — see
-LICENSE.txt Section 2. A commercial license only kicks in once a product
-built on this SDK is doing real revenue (current threshold: $1M/year gross,
-see LICENSE.txt for the exact terms). No tier gates, no feature paywall:
-every door, free, until that point.
+Tessera is one small engine for the things software has to remember: state,
+relationships, measurements, decisions, durable steps, and an audit trail.
+One install, no server, works offline, the same result every run.
 
-LICENSE.txt in this directory (and bundled in both wheels' dist-info) is a
-license agreement, not a formality — by installing or using this software
-you agree to its terms, which reserve all patent rights separately from the
-software license (no hardware/chip implementation is licensed here; see
-LICENSE.txt section 3) and prohibit reverse engineering for competing
-purposes. Draft pending attorney review — read it before wide distribution.
+You pick a "door" for the job you're doing and call plain methods. That's the
+whole API — seven doors over one engine.
 
-READ THIS NEXT, based on who you are:
-  building an app, want working code fast  -> COOKBOOK.md
-  want every door's full contract           -> DEVELOPER_GUIDE.md
-  want exact method signatures              -> API_REFERENCE.md
-  an AI coding agent                        -> AGENTS.md (read this FIRST, not last)
+--------------------------------------------------------------------------------
+LICENSE  (read LICENSE.txt — it is an agreement, not a formality)
+--------------------------------------------------------------------------------
+Free to use, including commercially, while you build. A commercial license is
+required only once a product built on Tessera reaches real revenue (current
+threshold: US$1,000,000/year gross — see LICENSE.txt for exact terms). No tier
+gates, no feature paywall: every door is free until that point. Installing or
+using the software constitutes acceptance of LICENSE.txt. All patent rights are
+reserved separately from the software license.
 
-WHAT'S HERE — there is more than one wheel; pick the one matching your
-`python3 --version`, don't glob them together:
-  laminar_tessera-0.1.0-cp313-cp313-macosx_10_13_universal2.whl
-                                CPython 3.13, macOS (x86_64 + arm64)
-  laminar_tessera-0.1.0-cp311-cp311-macosx_26_0_arm64.whl
-                                CPython 3.11, macOS arm64 only — built and
-                                verified on this machine; NOT tested on other
-                                macOS versions or Intel Macs despite the tag
-  src/                          the buildable source tree (rebuild for other
-                                platforms/versions). Engine source lives in
-                                src/build_src/ and is COMPILE-ONLY — it is
-                                never copied into any wheel.
-  Both wheels ship the engine as a compiled .so only — opcode internals are
-  NOT in either of them.
+--------------------------------------------------------------------------------
+INSTALL
+--------------------------------------------------------------------------------
+There is one wheel per Python version — pick the one matching `python3 --version`:
 
-INSTALL & USE
-  python3 --version                              # check which wheel you need
-  pip install laminar_tessera-0.1.0-cp313-*.whl   # or the cp311 one, not both
+  python3 --version
+  pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13
+  # or
+  pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl         # Python 3.11, Apple Silicon
+
+Verify:
   python -c "import tessera; print(tessera.engine_info())"
-  python -m tessera.selftest          # all seven doors, runs on the binary engine
+  python -m tessera.selftest
 
-NEED A DIFFERENT PYTHON VERSION OR OS? Rebuild — verified to actually work:
-  cd src && python -m pip wheel . --no-build-isolation -w dist
-  (needs: Cython>=3.0, setuptools, wheel, a C compiler)
-  This is exactly how the cp311 wheel above was produced from the cp313
-  source tree — the rebuild path is real, not theoretical.
+Need a build for another platform or Python version? Contact
+darreck@laminarinstruments.com.
 
-FOR ALL PLATFORMS AT ONCE
-  use cibuildwheel in CI — one wheel per OS/arch/Python. Neither shipped
-  wheel here was built that way; both are single-machine builds.
+--------------------------------------------------------------------------------
+WHERE TO START  (based on who you are)
+--------------------------------------------------------------------------------
+  Building an app, want working code fast  ->  COOKBOOK.md
+  Want every door's full contract          ->  DEVELOPER_GUIDE.md
+  Want exact method signatures             ->  API_REFERENCE.md
+  An AI coding agent                       ->  AGENTS.md  (read this first)
 
-WHAT SHIPS vs WHAT STAYS SECRET
-  shipped readable : the tessera API (names + calls, no algorithms)
-  shipped compiled : the 121-opcode engine (spu121, strict_v4) as machine code
-  never shipped    : the engine .py source (the opcode implementations)
-  still visible     : opcode NAMES (dict keys) — the public vocabulary
+--------------------------------------------------------------------------------
+THE SEVEN DOORS
+--------------------------------------------------------------------------------
+  agents    remember & decide            from tessera.agents   import Field
+  store     durable key/value            from tessera.store    import Store
+  graph     track connections            from tessera.graph    import Graph
+  signals   watch the numbers            from tessera.signals  import Signals
+  workflow  finish multi-step jobs       from tessera.workflow import Workflow
+  replay    prove what happened          from tessera.replay   import EventLog
+  baseline  learn what "normal" is       from tessera.baseline import AdaptiveBaseline
+  space     all of the above, one state  from tessera.space    import Space
+
+Zero third-party dependencies. Private and offline — nothing leaves the machine.
+
+© Laminar Instruments. Tessera is proprietary software. Patent(s) pending.

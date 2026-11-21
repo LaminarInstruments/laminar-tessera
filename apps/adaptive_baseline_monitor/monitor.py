@@ -14,10 +14,11 @@ values (20ms / 24ms) never produces an outlier either — the INSTABILITY is
 the signal, not any one reading.
 
 Tessera components used:
-    baseline (tessera.baseline.AdaptiveBaseline) — the engine's D4 feedback
-                                                     (EMA) + ENT entropy-
-                                                     baseline opcodes, never
-                                                     exposed by a door before
+    baseline (tessera.baseline.AdaptiveBaseline) — the engine's adaptive
+                                                     feedback (EMA) + entropy-
+                                                     baseline capability,
+                                                     never exposed by a door
+                                                     before
     signals  (tessera.signals.Signals)            — the static comparison,
                                                      to prove the gap is real
 
@@ -79,7 +80,7 @@ def demo():
 
     print()
     print("OK — both gaps are real, both get closed by the adaptive door, neither")
-    print("by the static one. This is the first public door onto D4/ENT.")
+    print("by the static one. This is the first public door onto that capability.")
 
 
 if __name__ == "__main__":

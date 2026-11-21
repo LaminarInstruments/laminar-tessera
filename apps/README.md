@@ -25,7 +25,7 @@ for the newer apps) is the reference pattern for avoiding it.
 `adaptive_baseline_monitor` is the odd one out, deliberately: it's not
 demonstrating a bug or a gotcha, it's demonstrating the **seventh door** —
 `tessera.baseline.AdaptiveBaseline`, the first public interface onto the
-engine's D4 (feedback/EMA) and ENT (entropy-baseline) opcodes. It exists
+engine's adaptive feedback (EMA) and entropy-baseline capability. It exists
 because the other six doors, however well-built, only ever expose static
 statistics — and static statistics have a real, demonstrated ceiling (see
 its README for the two scenarios proven, not assumed, to break them).

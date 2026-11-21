@@ -10,7 +10,7 @@ catch instability where no single reading is ever individually abnormal.
 
 | Door | Role |
 |---|---|
-| `tessera.baseline.AdaptiveBaseline` | first public door onto the engine's D4 (feedback/EMA) and ENT (entropy-baseline) opcodes — never exposed before this |
+| `tessera.baseline.AdaptiveBaseline` | first public door onto the engine's adaptive feedback (EMA) and entropy-baseline capability — never exposed before this |
 | `tessera.signals.Signals` | the static comparison, to prove the gap is real rather than assumed |
 
 ## Sample input / output

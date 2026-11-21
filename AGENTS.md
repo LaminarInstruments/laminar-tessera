@@ -14,9 +14,9 @@ directly. **Two wheels ship; never glob them together (`*.whl`) — pick the
 one matching `python3 --version`:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.0-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.1.1-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.0-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.1-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 python -m tessera.selftest        # must print "ALL SEVEN DOORS REAL"
 ```
 Each wheel is built for exactly the CPython version/platform in its
