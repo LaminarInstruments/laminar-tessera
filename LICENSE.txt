@@ -1,0 +1,161 @@
+LAMINAR TESSERA SOFTWARE LICENSE AGREEMENT
+laminar-tessera 0.1.0 — Laminar Instruments
+Created by Darreck L. Bender II, Founder, Laminar Instruments.
+Contact: darreck@laminarinstruments.com · laminarinstruments.com
+
+*** DRAFT FOR ATTORNEY REVIEW — NOT YET A FINAL, BINDING LEGAL DOCUMENT. ***
+This is a starting point written to be reviewed, corrected, and finalized by
+licensed counsel before it is relied on for any enforcement action. It is
+not legal advice.
+
+BY DOWNLOADING, INSTALLING, OR USING THIS SOFTWARE, YOU AGREE TO THE TERMS
+BELOW. IF YOU DO NOT AGREE, DO NOT INSTALL OR USE THIS SOFTWARE.
+
+1. PARTIES AND SUBJECT MATTER
+
+   This Agreement is between Laminar Instruments ("Licensor") and the
+   individual or entity installing or using this software ("Licensee"),
+   governing use of the compiled software package "laminar-tessera"
+   (the "Software"), including its compiled engine component
+   (`tessera._engine`), public Python interfaces, and accompanying
+   documentation (collectively, the "SDK").
+
+2. FREE USE UNTIL SCALE — THE ACTUAL DEAL
+
+   Licensor's intent is simple: builders should be able to use the SDK for
+   free, including in commercial products, while they are building. A
+   commercial license is required once real money is flowing through what
+   you built with it.
+
+   Licensor grants Licensee a limited, non-exclusive, non-transferable,
+   revocable, royalty-free license to install, use, and build applications
+   with the SDK — including for commercial, revenue-generating purposes —
+   for as long as Licensee complies with this Agreement AND the Revenue
+   Threshold below is not exceeded.
+
+   REVENUE THRESHOLD: this free license applies only while Licensee's (and
+   its affiliates', combined) total gross revenue attributable to any
+   product, service, or offering that incorporates or depends on the SDK
+   remains below USD $1,000,000 in any trailing twelve (12) month period.
+   [Threshold is Licensor's current working number, not yet finalized by
+   counsel — adjust before this is relied on as binding.]
+
+   Once that threshold is exceeded, Licensee has thirty (30) days to
+   contact Licensor at darreck@laminarinstruments.com to obtain a
+   commercial license. Continued use of the SDK beyond that period without
+   a commercial license is a breach of this Agreement. Pricing for a
+   commercial license is negotiated in good faith and is not presumed to
+   be prohibitive — the point of the threshold is to charge only once the
+   SDK is actually contributing to meaningful revenue, not to block anyone
+   from shipping.
+
+   This free tier is not open source. The source of the compiled engine is
+   never shipped (see Section 6). This is a free-to-use, source-protected
+   license, not a permissive or copyleft open-source license.
+
+3. WHAT IS NOT LICENSED — READ THIS CAREFULLY
+
+   This Agreement grants a license to USE THE SOFTWARE. It does NOT grant,
+   by implication, estoppel, or otherwise, any license, right, or
+   immunity under:
+
+   (a) any patent owned or controlled by Licensor covering the underlying
+       architecture or method (patent(s) pending; "the Patents"), for any
+       purpose including but not limited to designing, manufacturing,
+       having manufactured, using, selling, or offering for sale any
+       hardware device, chip, integrated circuit, or silicon
+       implementation that practices any method claimed in the Patents,
+       whether or not such implementation was developed independently,
+       through reverse engineering, or with knowledge of this SDK's
+       behavior; or
+
+   (b) any trade secret, unpublished specification, or internal
+       architecture of the SDK beyond what is affirmatively disclosed in
+       the SDK's shipped documentation (README.txt, DEVELOPER_GUIDE.md,
+       API_REFERENCE.md, COOKBOOK.md, AGENTS.md).
+
+   A separate written license is required for any hardware/chip
+   implementation of the Patents. Contact Licensor to discuss terms.
+   Independent derivation of a method claimed in the Patents — including
+   by observing this SDK's behavior rather than reading the Patents
+   themselves — is not a defense to patent infringement and does not
+   substitute for a license under paragraph (a).
+
+4. RESTRICTIONS
+
+   Licensee shall not, and shall not permit any third party to:
+
+   (a) reverse engineer, decompile, or disassemble the compiled engine
+       component of the SDK, except to the extent such restriction is
+       prohibited by applicable law;
+   (b) use the SDK, or any output, inference, or understanding derived
+       from observing the SDK's behavior, to develop, market, or
+       distribute a competing software product or software development
+       kit substantially replicating the SDK's architecture or
+       capabilities;
+   (c) use the SDK, or any such derived understanding, as part of
+       designing, developing, or manufacturing a competing hardware
+       product or chip, except under a separate written license as
+       described in paragraph 3(a);
+   (d) redistribute, sublicense, or sell the SDK itself, in whole or in
+       part, whether modified or unmodified, except as expressly permitted
+       by Licensor in writing;
+   (e) remove or alter any proprietary notice contained in the SDK; or
+   (f) misrepresent authorship of the SDK or any unmodified portion of it.
+
+5. OWNERSHIP
+
+   The SDK is licensed, not sold. Licensor retains all right, title, and
+   interest in and to the SDK, including all patent, copyright, trade
+   secret, and other intellectual property rights. No rights are granted
+   except as expressly stated in this Agreement.
+
+6. CONFIDENTIALITY
+
+   Any non-public technical materials Licensor provides to Licensee
+   outside the publicly shipped documentation listed in paragraph 3(b)
+   (including but not limited to opcode specifications, register-transfer-
+   level design, instruction-set details, or internal architecture
+   documents) are Licensor's confidential information and may only be
+   used for the purpose for which they were provided, under any
+   applicable separate confidentiality or license agreement. None of that
+   material is included in, or shipped with, this SDK.
+
+7. NO WARRANTY
+
+   THE SDK IS PROVIDED "AS IS," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+   SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM USE OF THE SDK.
+
+9. TERM AND TERMINATION
+
+   This Agreement is effective until terminated. It terminates
+   automatically, without notice, upon any breach of Sections 3 or 4, or
+   upon failure to obtain a commercial license within the window described
+   in Section 2 after exceeding the Revenue Threshold. Upon termination,
+   Licensee must cease all use of the SDK and destroy all copies in its
+   possession.
+
+10. GOVERNING LAW
+
+    [To be specified by counsel — e.g., the laws of the state in which
+    Laminar Instruments is organized, without regard to conflict-of-laws
+    principles.]
+
+11. ENTIRE AGREEMENT
+
+    This Agreement, together with any separate written license referenced
+    in paragraph 3(a) or Section 2, constitutes the entire agreement
+    between the parties regarding the SDK and supersedes all prior
+    discussions regarding its subject matter.
+
+---
+Laminar Instruments
+Created by Darreck L. Bender II, Founder.
+Patent(s) pending.
+darreck@laminarinstruments.com · laminarinstruments.com

@@ -1,0 +1,38 @@
+name: Publish to PyPI
+
+# Trusted Publishing (OIDC) — no API token is stored in this repo. The wheels
+# are built privately (never from this public repo — the engine source is
+# never committed here) and checked in under their final filenames; this
+# workflow's only job is to take exactly those files and hand them to PyPI
+# when a GitHub Release is published.
+#
+# One-time setup (on pypi.org, by a project owner):
+#   Project > Publishing > Add a new publisher
+#     Owner:        LaminarInstruments
+#     Repository:   laminar-tessera
+#     Workflow name: publish.yml
+#     Environment:  pypi
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write   # required for PyPI trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the wheels already committed in this repo
+        run: |
+          mkdir -p dist
+          cp *.whl dist/
+          ls -la dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
