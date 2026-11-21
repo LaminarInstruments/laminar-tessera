@@ -29,10 +29,9 @@ space = Space.open(name=MEM_NAME, persistence=_persistence)
 
 
 def _persist():
-    try:
-        space.save()
-    except Exception:
-        pass  # in-memory fallback should never happen here, but never crash a tool
+    """Raises on failure. Callers must not report a change as saved unless
+    this returns cleanly — see each tool's try/except below."""
+    space.save()
 
 
 # ---------------------------------------------------------------- facts (store)
@@ -42,7 +41,11 @@ def remember(key: str, value: str) -> str:
     Use this whenever the user shares something worth remembering later
     (a name, a preference, a date, a goal). Example: remember("daughter_birthday", "March 3")."""
     space.store.put(str(key), value)
-    _persist()
+    try:
+        _persist()
+    except Exception as e:
+        return (f"Could not save '{key}' to disk ({e}). It is NOT durably "
+                f"remembered — this will be lost if the server restarts.")
     return f"Remembered: {key} = {value}"
 
 
@@ -66,7 +69,11 @@ def list_memories() -> str:
 def forget(key: str) -> str:
     """Permanently delete a remembered fact by its key."""
     space.store.delete(str(key))
-    _persist()
+    try:
+        _persist()
+    except Exception as e:
+        return (f"Could not save the deletion of '{key}' to disk ({e}). It may "
+                f"still be remembered if the server restarts before this is retried.")
     return f"Forgot '{key}'."
 
 
@@ -77,7 +84,10 @@ def note(text: str) -> str:
     or anything worth keeping a dated record of."""
     import datetime
     space.replay.append({"ts": datetime.datetime.now().isoformat(timespec="seconds"), "text": text})
-    _persist()
+    try:
+        _persist()
+    except Exception as e:
+        return f"Could not save that note to disk ({e}). It is NOT durably recorded."
     return "Noted."
 
 
@@ -97,7 +107,10 @@ def track(metric: str, value: float) -> str:
     """Record one numeric reading for a named metric over time
     (e.g. track("resting_hr", 58)). Readings accumulate; use trend() to analyze."""
     space.signals.measure(str(metric), [float(value)])
-    _persist()
+    try:
+        _persist()
+    except Exception as e:
+        return f"Could not save this reading of '{metric}' to disk ({e}). It is NOT durably tracked."
     return f"Tracked {metric} = {value}"
 
 
@@ -126,10 +139,14 @@ def relate(a: str, b: str) -> str:
     Build up a web of relationships you can query later with connections()."""
     try:
         space.graph.connect(str(a), str(b))
-        _persist()
-        return f"Linked {a} <-> {b}"
     except ValueError as e:
         return f"Could not link: {e}"
+    try:
+        _persist()
+    except Exception as e:
+        return (f"Linked {a} <-> {b} in memory, but could not save it to disk "
+                f"({e}). This link will be lost if the server restarts.")
+    return f"Linked {a} <-> {b}"
 
 
 @mcp.tool()
