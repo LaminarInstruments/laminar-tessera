@@ -2,6 +2,8 @@
 
 Tessera — created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com · patent(s) pending.
+Hit a real bug (not a "capability not listed here")? File it:
+https://github.com/LaminarInstruments/laminar-tessera/issues
 
 You are integrating **Tessera**, a zero-dependency, offline, deterministic SDK.
 Build against the **public API only**. Do not import or inspect `tessera._engine`

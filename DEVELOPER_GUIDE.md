@@ -382,4 +382,5 @@ call the methods, ship.
 
 Patent(s) pending · Laminar Instruments · Created by Darreck L. Bender II, Founder.
 darreck@laminarinstruments.com · laminarinstruments.com
+Found a bug? https://github.com/LaminarInstruments/laminar-tessera/issues
 Free to use, including commercially, until your revenue scales — see LICENSE.txt.

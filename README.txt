@@ -42,6 +42,7 @@ Verify:
   python -c "import tessera; print(tessera.engine_info())"
   python -m tessera.selftest
 
+Found a bug? File it: https://github.com/LaminarInstruments/laminar-tessera/issues
 Need a build for another platform or Python version? Contact
 darreck@laminarinstruments.com.
 

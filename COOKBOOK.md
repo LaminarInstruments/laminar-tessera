@@ -778,15 +778,14 @@ use case:
   same time will race — `save()` now raises a clear `ConcurrentWriteError`
   instead of an internals-leaking crash, but that's a better failure mode,
   not coordination; lost updates are still possible.
-- **No adaptive/learned thresholds exposed yet.** The underlying engine has
-  EMA/convergence/oscillation-detection opcodes (the full 121-opcode set);
-  the six public doors only wrap a static, caller-supplied `threshold=`
-  argument today. If you need a threshold that learns and moves over time
-  rather than one you hardcode, that capability exists in the engine but
-  isn't wired to a door yet.
-- **No public issue tracker or support contact ships with this package** —
-  checked `PKG-INFO`, no homepage/repo URL present. Until one exists, an
-  undocumented edge case has nowhere to go but back to the author.
+- **`signals.anomalies()`'s threshold is still static** (a caller-supplied
+  `threshold=` standard-deviations cutoff) — if you need a threshold that
+  learns and moves over time instead of one you hardcode, that's what the
+  `baseline` door (`tessera.baseline.AdaptiveBaseline`) is for; see Part 1's
+  door table.
+- **Found a bug, or an undocumented edge case?** File it at
+  https://github.com/LaminarInstruments/laminar-tessera/issues — public,
+  no account needed to read it, a free GitHub account to file one.
 - **Not a clinical decision system.** `signals.entropy()`/`anomalies()` are
   generic statistics, not medically validated risk scores (Recipe 5).
 - **Each wheel installs on exactly one Python version/platform** — `cp313`
@@ -844,5 +843,6 @@ knowing before you build something that assumes otherwise.
 - `API_REFERENCE.md` — every public method signature.
 - `DEVELOPER_GUIDE.md` — the authoritative per-door contracts.
 - `AGENTS.md` — if you're an AI coding agent, read this one first.
-- No public issue tracker yet. Anything not covered by the four docs above
-  goes to darreck@laminarinstruments.com (laminarinstruments.com).
+- Bugs and anything not covered by the four docs above:
+  https://github.com/LaminarInstruments/laminar-tessera/issues — or
+  darreck@laminarinstruments.com (laminarinstruments.com) directly.
