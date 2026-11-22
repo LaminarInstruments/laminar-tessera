@@ -20,11 +20,11 @@ Or install a specific wheel file directly. **Three wheels ship; never glob
 them together (`*.whl`) — pick the one matching `python3 --version` and OS:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.3-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.1.4-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.3-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.4-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 Each wheel is built for exactly the CPython version/platform in its
 filename — verified to fail outright on any other with "not a supported
@@ -99,9 +99,11 @@ workflow contract below. If you forget, `run()` now raises
   `{'n':1,'mean':0.0,'std':0.0}`-shaped result indistinguishable from real
   data) — always `measure()` before reading. `correlate()` on series of
   different lengths now raises `ValueError` instead of silently using the
-  overlapping prefix. `stats()`/`anomalies()` now raise `ArithmeticError`
-  (instead of silently returning `None`) if the internal computation
-  overflows on extreme-magnitude input.
+  overlapping prefix. Any numeric value with `abs(x) > 1e15` (plus NaN/Inf)
+  is silently sanitized to `0.0` at the shared dispatch sanitizer, the same
+  bucket as NaN/Inf, before it can ever poison a series' mean/std —
+  `stats()`/`anomalies()` raising `ArithmeticError` on overflow is a
+  defensive fallback only, not reachable via any known input.
 - **workflow:** completed+checkpointed steps are **not re-run** on recovery
   (exactly-once *internal* state). External side effects are **not** exactly-once —
   a crash after an external action but before the checkpoint re-runs the step; use an

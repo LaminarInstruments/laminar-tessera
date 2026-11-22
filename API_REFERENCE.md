@@ -3,7 +3,7 @@
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com
 
-Generated from the live public signatures of `tessera 0.1.3`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
+Generated from the live public signatures of `tessera 0.1.4`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
 
 ## tessera.agents
 
@@ -111,9 +111,10 @@ A named thing an agent can run.
 - `__init__(self, persistence=None, name='signals', _spu=None)`
 - `anomalies(self, series, threshold=3)`
     - Indices in the stream that sit more than `threshold` std from the mean.
-      Raises `ValueError` if `series` was never `measure()`'d. Raises
-      `ArithmeticError` if the internal computation overflows (extreme
-      magnitude input).
+      Raises `ValueError` if `series` was never `measure()`'d. (An
+      `ArithmeticError` exists as a defensive fallback for an internal
+      overflow, but any extreme-magnitude input is sanitized away before it
+      can reach this — see `measure()` below.)
 - `correlate(self, series_a, series_b)`
     - How tightly two streams move together (-1..1). Raises `ValueError` if
       either series was never measured, or if the two series have different
@@ -129,16 +130,16 @@ A named thing an agent can run.
 - `classmethod load(name='signals', persistence='local', path=None)`
     - Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `measure(self, series, values)`
-    - Add one or more readings to a named stream. `NaN`/`inf` are silently
-      sanitized to `0.0` (engine-wide, intentional — see COOKBOOK.md).
+    - Add one or more readings to a named stream. `NaN`/`inf` and any value
+      with `abs(x) > 1e15` are silently sanitized to `0.0` (engine-wide,
+      intentional — see COOKBOOK.md).
 - `classmethod open(name='signals', persistence=None)`
     - Load existing state if a save already exists; otherwise create fresh.
 - `save(self, path=None)`
     - Same `ValueError`/`ConcurrentWriteError` conditions as `Store.save()`.
 - `stats(self, series)`
     - Running count / mean / std for a stream. Raises `ValueError` if
-      `series` was never `measure()`'d. Raises `ArithmeticError` if the
-      internal computation overflows.
+      `series` was never `measure()`'d.
 
 ## tessera.workflow
 

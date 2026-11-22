@@ -18,11 +18,11 @@ Or install a specific wheel file directly:
 
 ```bash
 python3 --version                                         # check this FIRST — three wheels ship now
-pip install laminar_tessera-0.1.3-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
+pip install laminar_tessera-0.1.4-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.3-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.4-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 **Each wheel installs on exactly the Python version/platform in its
@@ -675,23 +675,29 @@ agent's word. All eight are now fixed except the one noted as intentional.
   name looked exactly like "one real reading of zero." Independently found
   by three of the four agents. **Now raises `ValueError`** naming the
   series and telling you to `measure()` it first.
-- **FIXED — `signals.stats()`/`anomalies()` could silently return `None`,
-  and `entropy()` could crash with an internals-leaking `ValueError`, on
-  extreme-but-finite magnitude input** — not the documented NaN/inf case,
-  valid floats whose internal sum/variance overflows. Root cause for
-  `entropy()` was actually in the plain-Python `histogram8()` helper
-  (`hi - lo` overflowing to `inf`, then `inf/inf = nan`, then
-  `int(nan)` raising) — fixed with a rank-based binning fallback for
-  non-finite ranges, well-defined at any magnitude. `stats()`/`anomalies()`
-  **now raise `ArithmeticError`** with a clear message instead of silently
-  returning `None`.
+- **FIXED — `entropy()` could crash with an internals-leaking `ValueError`
+  on extreme-but-finite magnitude input.** Root cause was in the plain-Python
+  `histogram8()` helper (`hi - lo` overflowing to `inf`, then `inf/inf = nan`,
+  then `int(nan)` raising) — fixed with a rank-based binning fallback for
+  non-finite ranges, well-defined at any magnitude.
+- **FIXED for real — a single extreme-but-finite value (e.g. ~1e308) used to
+  silently poison a series' `stats()`/`anomalies()` into meaninglessness,
+  with no error raised at all.** An earlier fix added an `ArithmeticError`
+  guard on `stats()`/`anomalies()` for exactly this case — but adversarial
+  testing (a multi-door crash/chaos simulation, deliberately fed `1e308`)
+  proved that guard can never actually fire: Python's `statistics.fmean`/
+  `pstdev` stay numerically stable all the way to float64's real maximum, so
+  the engine never returns the `None` the guard was watching for. The real
+  fix is upstream, in the same sanitizer that already catches NaN/inf: any
+  `|float| > 1e15` is now sanitized to `0.0` too, before it can ever reach a
+  series. `stats()`/`anomalies()` raising `ArithmeticError` on a `None`
+  result remains in the code as a defensive fallback, not the actual
+  protection.
 - **Not a bug — by design, and engine-wide, not limited to
-  `signals.measure()`.** NaN/Inf→`0.0` sanitization is confirmed identical in
-  `store.put()` and `agents.Field.observe()`. Per the engine's own internal
-  spec (not shipped with this SDK): *"every kwarg is sanitized before
-  dispatch — NaN/inf → 0.0, recursively... prevents state poisoning."* This
-  is intentional robustness, not a defect — left as documented behavior,
-  not "fixed."
+  `signals.measure()`.** NaN/Inf/extreme-magnitude→`0.0` sanitization is
+  confirmed identical in `store.put()` and `agents.Field.observe()` — the
+  same shared dispatch-time sanitizer handles every door's numeric input, so
+  this protection isn't something you have to remember to add per-door.
 - **FIXED — `store.put()` stringifies every key.** `put(1, "a")` then
   `put("1", "b")` used to silently overwrite the first with no signal.
   **Now raises `ValueError`** on the second call if the stringified key
@@ -753,9 +759,8 @@ recorded — not guessed from the method name.
 | `store.put(1, "a")` then `store.put("1", "b")` | Raises `ValueError` on the second call — previously silently overwrote the first (keys are stringified internally) |
 | `signals.stats()`/`anomalies()`/`correlate()` on a series never `measure()`'d | Raises `ValueError` — previously returned a fabricated `{'n':1,'mean':0.0,'std':0.0}`-shaped result |
 | `signals.correlate()` on series of different lengths | Raises `ValueError` — previously silently used the overlapping prefix |
-| `signals.stats()`/`anomalies()` on extreme-magnitude input that overflows internally | Raises `ArithmeticError` — previously silently returned `None` |
 | Exception raised inside `store.transaction()` | Rolled back, then **re-raised** — never swallowed |
-| `signals.measure(series, [NaN, inf, ...])`, `store.put(k, nan)`, `agents.observe({"x": nan})` | Silently sanitized to `0.0` per value, engine-wide — by design, not a bug |
+| `signals.measure(series, [NaN, inf, 1e308, ...])`, `store.put(k, nan)`, `agents.observe({"x": nan})` | Silently sanitized to `0.0` per value, engine-wide (NaN/inf AND anything `\|x\| > 1e15`) — by design, not a bug |
 | `agents.Program(name, fn=...)`'s `fn` returns a non-`None` value | A `UserWarning` is raised (the value is still discarded — `fn` must call `field.observe()` itself) |
 | `workflow.run(ctx)` called again after a step already completed, with different `ctx` values | The already-completed step's stored result is unchanged; new input for that step is ignored until `reset()` |
 | `replay`/`workflow` writes made through `space.replay`/`space.workflow` without calling `space.save()` | Nothing is persisted — `Space` overrides their standalone auto-save (Part 2.2) |
