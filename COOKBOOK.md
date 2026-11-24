@@ -18,11 +18,11 @@ Or install a specific wheel file directly:
 
 ```bash
 python3 --version                                         # check this FIRST — three wheels ship now
-pip install laminar_tessera-0.1.5-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
+pip install laminar_tessera-0.1.6-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.5-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.6-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 **Each wheel installs on exactly the Python version/platform in its
@@ -739,7 +739,7 @@ documentation literally (see Part 3 Recipe 7 Gotcha 2 and the error
 reference below):** `workflow`'s silent-skip-on-forgotten-step-registration,
 and silent double-execution when two steps share a name.
 
-### v0.1.5 — a 59-finding external qualification ledger, resolved
+### v0.1.6 — a 59-finding external qualification ledger, resolved
 
 An external qualification campaign ran 59 adversarial checks against every
 door and reported them as a numbered ledger (TS-01 through TS-59). 53 were
@@ -797,6 +797,63 @@ category rather than repeated findng-by-finding:
   does not survive `save()`/`load()`, and is independent of
   `store.transaction()` (not invalidated by that transaction's rollback) —
   it is a write-ahead-log-style audit point, not transactional state.
+
+### v0.1.6 — 13 more findings, found by adversarially testing v0.1.6's OWN fixes
+
+The v0.1.6 ledger resolution was itself put under the same adversarial
+testing it was built from — on the theory that freshly-written fixes are
+exactly where new bugs hide. 13 real, reproduced findings came out of it,
+several of them regressions in the v0.1.6 fixes themselves:
+
+- **A systemic gap, not one bug: `Door.load(name, persistence, path=...)`
+  didn't bind `self._path`** on `store`, `graph`, `signals`, `workflow`,
+  `baseline`, or `space` — the v0.1.6 fix for this (TS-19) only touched
+  `replay` and `agents`, even though every door's `load()` shared the
+  identical flawed pattern. Fixed consistently on all 8 doors now.
+- **Upgrading to v0.1.6 silently emptied every existing `agents.Field`'s
+  state()** — the fix that gave `agents` its own descriptor namespace
+  (to stop it colliding with `store`'s) had no migration path for data
+  saved before that fix existed. `Field` now detects and migrates an old,
+  un-namespaced save automatically and transparently on load.
+- **`agents.observe()` bypassed `signals.measure()`'s new magnitude
+  guard** — both feed the identical shared measurement series via the same
+  opcode, but only one of the two entry points was checking it. A huge
+  value written through `observe()` silently poisoned `signals.stats()`
+  reading the same series. Both doors now share one check.
+- **A NaN nested inside a dict value wrote literal nonstandard JSON** —
+  the engine's shared sanitizer only recurses into lists/tuples, never
+  dicts, so `store.put('x', {'val': float('nan')})` produced a file a
+  strict JSON reader can't parse. `store`, `workflow` results, and
+  `agents.observe()` values now sanitize NaN/Inf recursively, including
+  inside dicts.
+- **`store.put()`/`workflow` step results/`replay.append()` didn't
+  validate full JSON-serializability** — a raw `set` value, or a dict with
+  a tuple key, was accepted silently and only failed later with a raw,
+  internals-leaking `TypeError` at `save()` time. All three now validate
+  eagerly, at the call that accepts the value.
+- **A fork-of-a-fork commit could false-positive as "stale."**
+  `field.fork().fork()` committed directly onto `field` incorrectly
+  compared the grandchild's generation against the wrong ancestor's
+  op-counter. The staleness check now only applies between a branch and
+  the EXACT object it was directly forked from; a skip-level commit falls
+  back to the (still-enforced) lineage check instead of a false rejection.
+  Chain commits (leaf → intermediate → root) get full staleness protection
+  at every hop.
+- **A workflow step's tuple result, or a result with colliding dict keys,
+  only broke after a resume** — the v0.1.6 fixes for this exact class of
+  bug existed for `store.put()` but were never applied to workflow step
+  results (now they are, via the same shared validator).
+- **`graph.disconnect()` didn't validate node types like `connect()`
+  does** — accepted non-str nodes silently (asymmetric; low-impact since
+  such a node could never have been connected in the first place, but
+  fixed for consistency).
+- **`with` and `async with` on the same `store.transaction()` weren't
+  mutually exclusive** — the v0.1.6 async-transaction lock fix only
+  guarded the async path; the sync path never checked it at all, so
+  mixing the two flavors on one Store silently reopened the original
+  interleaving bug. Now cross-flavor conflicts raise `RuntimeError`
+  instead of silently corrupting state, and a nested `async with` on the
+  SAME task no longer deadlocks (the lock is now reentrant per-task).
 
 ## Part 4 — Error reference
 

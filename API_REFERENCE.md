@@ -3,7 +3,7 @@
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com
 
-Generated from the live public signatures of `tessera 0.1.5`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
+Generated from the live public signatures of `tessera 0.1.6`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
 
 ## tessera.agents
 
@@ -17,7 +17,12 @@ An agent's unified state — memory, relationships, and decisions in one.
     - Keep a decision. With a branch, adopt the future you explored on it.
       Raises `ValueError` if `branch` wasn't `fork()`'d from this field's own
       engine, or if this field has changed since the fork (a stale commit
-      would otherwise silently discard whatever happened in between). Pass
+      would otherwise silently discard whatever happened in between). This
+      staleness check only applies between a branch and the EXACT object it
+      was directly `fork()`'d from — committing a fork-of-a-fork
+      (`field.fork().fork()`) straight onto the original falls back to just
+      the lineage check instead of a false "stale" rejection; chain commits
+      (leaf → intermediate → root) get the full check at every hop. Pass
       `force=True` for a deliberate whole-world replacement regardless.
 - `fork(self)`
     - An isolated copy to explore a future on. Changes here do NOT touch
@@ -39,9 +44,14 @@ An agent's unified state — memory, relationships, and decisions in one.
       current value) and a measurement (the running series, for stats).
       `observations` may be a one-shot iterator (materialized once, safely).
       Raises `ValueError` up front — before any state is touched — for two
-      keys that collide once stringified (e.g. `3` and `"3"`), or for a
-      value that fails `float()` conversion; a failure never leaves a
-      partial, unlogged mutation behind.
+      keys that collide once stringified (e.g. `3` and `"3"`, including a
+      collision nested inside a value), for a value that fails `float()`
+      conversion, or for a numeric value with `abs(value) > 1e15` (this
+      feeds the exact same shared measurement series `signals.stats()`
+      reads, so it mirrors `Signals.measure()`'s own magnitude check — a
+      huge value written here used to silently poison that series through
+      this door instead). A failure never leaves a partial, unlogged
+      mutation behind.
 - `classmethod open(name, persistence=None)`
     - Load existing state if a save already exists; otherwise create fresh.
       THE safe entry point for any restart path — see `COOKBOOK.md` Part 2.0.
@@ -81,7 +91,9 @@ A named thing an agent can run.
     - Returns deep copies.
 - `keys(self)`
 - `classmethod load(name='store', persistence='local', path=None)`
-    - Raises `FileNotFoundError` if nothing was ever saved; raises
+    - Binds further saves to the actual `path` passed (previously silently
+      dropped, so a save went to the default name-derived path instead).
+      Raises `FileNotFoundError` if nothing was ever saved; raises
       `tessera.InvalidSaveFileError` if the file exists but is corrupted or
       the wrong shape.
 - `classmethod open(name='store', persistence=None)`
@@ -90,12 +102,19 @@ A named thing an agent can run.
 - `put(self, key, value)`
     - Set key -> value. Raises `ValueError` if `key` stringifies to the same
       thing as a differently-typed key already stored (e.g. `put(1, ...)`
-      after `put("1", ...)`) — keys are stringified internally. Also raises
-      `ValueError` if `value` is a dict containing two keys that would
-      collide the same way once persisted. `value` is deep-copied on the
-      way in (mutating your original afterward can't change what's stored),
-      and any tuple anywhere inside it is normalized to a list immediately
-      (not only after a save/reload — JSON has no tuple type).
+      after `put("1", ...)`) — keys are stringified internally. `value` is
+      fully validated for persistence before being stored: raises
+      `ValueError` for two dict keys that would collide once stringified
+      (e.g. `{1: 'a', '1': 'b'}`), raises `TypeError` for a dict key that
+      isn't a valid JSON key type (e.g. a tuple) or for a value that isn't
+      JSON-serializable at all (e.g. a raw `set`) — previously these were
+      accepted silently and only failed later, with a raw internals error,
+      at `save()` time. `value` is deep-copied on the way in (mutating your
+      original afterward can't change what's stored), any tuple anywhere
+      inside it is normalized to a list immediately (not only after a
+      save/reload — JSON has no tuple type), and any NaN/Inf anywhere
+      inside it — including nested in a dict, which the engine's sanitizer
+      doesn't reach — is sanitized to `0.0`.
 - `save(self, path=None)`
     - Raises `ValueError` if in-memory (no `persistence` set). Raises
       `RuntimeError` if called while a `transaction()` is still open on this
@@ -108,7 +127,12 @@ A named thing an agent can run.
       Use `async with store.transaction():` instead of `with` for a block
       spanning `await` points — it serializes concurrent transactions on
       this Store via a shared lock, so two tasks' transactions can no
-      longer interleave on the shared engine state.
+      longer interleave on the shared engine state, and is reentrant for
+      the SAME task (a nested `async with` from within another on the same
+      task does not deadlock). Mixing `with` and `async with` on the same
+      Store now raises `RuntimeError` instead of silently proceeding
+      unguarded if the other flavor currently has a transaction open — use
+      one flavor consistently for a Store also accessed from async code.
 
 ## tessera.graph
 
@@ -131,9 +155,13 @@ A named thing an agent can run.
 - `degree(self, node)`
     - How many things connect to this node.
 - `disconnect(self, a, b)`
+    - Remove the relationship between a and b. Raises `ValueError` if either
+      side isn't a `str` — same requirement as `connect()` (previously
+      unchecked, asymmetric with `connect()`'s validation).
 - `edges(self)`
 - `classmethod load(name='graph', persistence='local', path=None)`
-    - Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
+    - Binds further saves to the actual `path` passed (previously silently
+      dropped). Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `neighbors(self, node)`
 - `classmethod open(name='graph', persistence=None)`
     - Load existing state if a save already exists; otherwise create fresh.
@@ -189,7 +217,8 @@ A named thing an agent can run.
       `ValueError` if `threshold` isn't a finite number (previously a `NaN`
       threshold was silently sanitized to `0.0`, which always escalated).
 - `classmethod load(name='signals', persistence='local', path=None)`
-    - Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
+    - Binds further saves to the actual `path` passed (previously silently
+      dropped). Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `measure(self, series, values)`
     - Add one or more readings to a named stream. Raises `TypeError` if
       `series` isn't a `str` (a non-str series that stringifies the same as
@@ -226,7 +255,8 @@ A named thing an agent can run.
 - `classmethod create(name, persistence=None)`
     - Create new state; raise FileExistsError if a save already exists.
 - `classmethod load(name, persistence='local', path=None)`
-    - Restores checkpoint data, NOT the Python step functions — you must
+    - Binds further saves to the actual `path` passed (previously silently
+      dropped). Restores checkpoint data, NOT the Python step functions — you must
       re-add every step by name before calling `run()`. Raises
       `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `classmethod open(name, persistence=None)`
@@ -250,7 +280,12 @@ A named thing an agent can run.
       step's return value isn't JSON-serializable, or is itself an
       awaitable (an `async def` step, or a sync function returning a
       coroutine) — rejected before marking the step complete, so memory and
-      durable completion can't go out of sync.
+      durable completion can't go out of sync. A step's return value also
+      gets the same validation `store.put()`'s `value` does: `ValueError`
+      for a dict key collision once stringified, `TypeError` for a dict key
+      of an invalid JSON type — previously a tuple result silently became a
+      list, and a colliding dict key silently collapsed, only after a
+      resume; both are normalized/validated immediately now.
 - `step(self, fn)`
     - Decorator: register a step, run in registration order. Same duplicate
       check as `add()`.
@@ -264,9 +299,13 @@ A named thing an agent can run.
     - Record an event. Durable immediately when persisted. Raises
       `TypeError` if `event` isn't JSON-serializable (including `NaN`/
       `Infinity`, which Python's `json` module would otherwise silently
-      write as nonstandard tokens) — rejected before being added, so a
-      failed append can no longer corrupt the log or block a later valid
-      append. `event` is deep-copied on the way in.
+      write as nonstandard tokens), if a dict key is an invalid JSON key
+      type, or `ValueError` for two dict keys that collide once
+      stringified (the same class of bug already fixed for `store.put()`)
+      — rejected before being added, so a failed append can no longer
+      corrupt the log or block a later valid append. `event` is
+      deep-copied on the way in, and any tuple inside it is normalized to
+      a list immediately.
 - `classmethod create(name='log', persistence=None)`
     - Create new state; raise FileExistsError if a save already exists.
 - `events(self)`
@@ -320,7 +359,8 @@ engine's adaptive feedback (EMA) and entropy-baseline capability.
 - `learn_many(self, values)`
     - Feed a sequence of readings in order. Returns the final baseline.
 - `classmethod load(name, persistence='local', path=None)`
-    - Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
+    - Binds further saves to the actual `path` passed (previously silently
+      dropped). Raises `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `nudge(self, delta)`
     - Manually shift the baseline by exactly `delta`, immediately (previously
       this fed `ema + delta` back through the EMA blend, applying only a
@@ -368,7 +408,8 @@ Seven doors sharing one engine and one unit of state.
 - `classmethod create(name: str = 'space', persistence: Union[str, bool] = None) -> Space`
     - Create new state; raise FileExistsError if a save already exists.
 - `classmethod load(name: str = 'space', persistence: Union[str, bool] = 'local', path: Optional[str] = None) -> Space`
-    - Reload a whole Space — all doors, one state — from disk. Raises
+    - Reload a whole Space — all doors, one state — from disk. Binds further
+      saves to the actual `path` passed (previously silently dropped). Raises
       `FileNotFoundError`/`tessera.InvalidSaveFileError` as above.
 - `classmethod open(name: str = 'space', persistence: Union[str, bool] = None) -> Space`
     - Load existing state if a save already exists; otherwise create fresh.

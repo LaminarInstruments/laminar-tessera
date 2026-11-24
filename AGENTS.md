@@ -20,11 +20,11 @@ Or install a specific wheel file directly. **Three wheels ship; never glob
 them together (`*.whl`) — pick the one matching `python3 --version` and OS:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.5-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.1.6-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.5-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.6-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 Each wheel is built for exactly the CPython version/platform in its
 filename — verified to fail outright on any other with "not a supported
@@ -81,7 +81,12 @@ workflow contract below. If you forget, `run()` now raises
   any persisted name as single-writer. `save()` into a directory that doesn't
   exist raises plain `FileNotFoundError` (create the directory first) —
   distinct from `ConcurrentWriteError`, which means a writer collision, not a
-  missing path.
+  missing path. **`Door.load(name, persistence, path=...)` binds further
+  saves to the actual `path` passed** — on every door (`Store`, `Graph`,
+  `Signals`, `Workflow`, `AdaptiveBaseline`, `Space`, plus `Field` and
+  `EventLog` already fixed before) — previously an explicit `path` was used
+  only to read, then silently dropped, so a subsequent `save()` went to the
+  default name-derived filename instead.
 - **agents:** `Program(name)` has **no built-in names**. With no body it records the
   run and folds `**kwargs` into state (`run(Program("x"), q=100)` ⇒ `state()["q"]==100`).
   A `steps=[(opcode, kwargs), ...]` Program preflights every opcode name before
@@ -94,33 +99,63 @@ workflow contract below. If you forget, `run()` now raises
   forked from this same field (a different Space/Field) or if this field
   changed since the fork (stale commit would otherwise silently discard
   whatever happened in between) — pass `force=True` for a deliberate
-  whole-world replacement anyway. `observe()` validates every field BEFORE
-  writing any of them (a conversion failure, e.g. an int too big for `float()`,
-  used to leave earlier fields in this same call written with no log entry);
-  it also rejects two keys that collide once stringified (`observe({3:...,
-  "3":...})`). `state()`/`history()` return deep copies — mutating what they
-  return, or a dict you already passed to `observe()`, can no longer change
-  stored state. An `fn=`-form `Program`'s **return value is discarded** — `fn`
-  must call `field.observe(...)` itself to record anything; a non-`None`
-  return triggers a `UserWarning`.
+  whole-world replacement anyway. The staleness check only applies between a
+  branch and the EXACT object it was directly `fork()`'d from — committing a
+  fork-of-a-fork (`field.fork().fork()`) straight onto the original `field`
+  skips the generation check (falling back to just the lineage check) rather
+  than falsely rejecting it as stale; for full staleness protection at every
+  hop, commit in chain order (leaf → intermediate → root) instead of
+  skip-level. `observe()` validates every field BEFORE writing any of them (a
+  conversion failure, e.g. an int too big for `float()`, used to leave
+  earlier fields in this same call written with no log entry); it also
+  rejects two keys that collide once stringified (`observe({3:..., "3":...})`,
+  including a collision nested inside a value, not just at the top level),
+  and raises `ValueError` for a numeric value with `abs(value) > 1e15` —
+  `observe()` feeds the exact same shared measurement series
+  `signals.stats()` reads, so this mirrors `Signals.measure()`'s own
+  magnitude check (previously `observe()` bypassed it entirely, silently
+  poisoning that series through a different door). `state()`/`history()`
+  return deep copies — mutating what they return, or a dict you already
+  passed to `observe()`, can no longer change stored state. An `fn=`-form
+  `Program`'s **return value is discarded** — `fn` must call
+  `field.observe(...)` itself to record anything; a non-`None` return
+  triggers a `UserWarning`. **Upgrading from a pre-0.1.6 save**: `Field`
+  migrates its old, un-namespaced descriptor data into the new namespaced
+  unit automatically and transparently on first load — no action needed,
+  but note it (previously this silently returned an empty `state()`).
 - **store:** `transaction()` commits on clean exit, **rolls back and re-raises on any
   exception**. It never swallows exceptions — wrap in try/except if you expect one.
   Use `async with store.transaction():` (not `with`) for a block spanning
   `await` points — it serializes concurrent transactions on the same Store via
   a shared lock so two tasks' transactions can't interleave on the engine's
-  shared state. `save()` **raises `RuntimeError`** while a transaction is
-  still open on this Store (previously it wrote the in-progress, uncommitted
-  values straight to disk). `put(key, value)` stringifies `key` internally —
-  `put(1, ...)` and `put("1", ...)` **raise `ValueError`** on the second call
-  instead of silently colliding; `delete()` enforces the same type match (
-  `delete(1)` after `put("1", ...)` now raises instead of silently removing
-  the wrong entry). `value` is deep-copied on `put()`/`get()`/`items()` —
-  neither side can mutate the other's view. Tuples anywhere inside `value`
-  are normalized to lists immediately at `put()` (not only after a reload —
-  JSON has no tuple type). A dict `value` with two keys that collide once
-  stringified (e.g. `{1: 'a', '1': 'b'}`) raises `ValueError` at `put()`
-  instead of silently losing one on the next save.
-- **graph:** nodes **must be `str`** — `connect()` raises `ValueError` for
+  shared state, and is reentrant for the SAME task (a nested `async with` from
+  within another on the same task does not deadlock). **Mixing `with` and
+  `async with` on the same Store now raises `RuntimeError`** instead of
+  silently proceeding unguarded if the other flavor currently has a
+  transaction open — the two are not mutually exclusive by default (the sync
+  path never touches the async lock), so this makes misuse loud; use one
+  flavor consistently for a Store also accessed from async code. `save()`
+  **raises `RuntimeError`** while a transaction is still open on this Store
+  (previously it wrote the in-progress, uncommitted values straight to disk).
+  `put(key, value)` stringifies `key` internally — `put(1, ...)` and
+  `put("1", ...)` **raise `ValueError`** on the second call instead of
+  silently colliding; `delete()` enforces the same type match (`delete(1)`
+  after `put("1", ...)` now raises instead of silently removing the wrong
+  entry). `value` is deep-copied on `put()`/`get()`/`items()` — neither side
+  can mutate the other's view. `value` is fully validated for persistence
+  before being stored: `put()` raises `TypeError` for a dict key that isn't a
+  valid JSON key type (e.g. a tuple) or for a value that isn't
+  JSON-serializable at all (e.g. a raw `set`) — previously these were
+  accepted silently and only failed later, with a raw internals error, at
+  `save()` time. Tuples anywhere inside `value` are normalized to lists
+  immediately at `put()` (not only after a reload — JSON has no tuple type).
+  A dict `value` with two keys that collide once stringified (e.g.
+  `{1: 'a', '1': 'b'}`) raises `ValueError` at `put()` instead of silently
+  losing one on the next save. NaN/Inf anywhere inside `value` — including
+  nested in a dict, which the shared dispatch sanitizer does not reach — is
+  sanitized to `0.0` (previously a dict-nested NaN survived and could reach
+  `save()` as a literal, nonstandard JSON token).
+- **graph:** nodes **must be `str`** — `connect()` AND `disconnect()` raise `ValueError` for
   anything else (an int node round-trips fine in memory but loses its
   identity on save/reload, since JSON object keys are always strings; a tuple
   node gets silently converted to a list by the shared dispatch sanitizer and
@@ -180,11 +215,16 @@ workflow contract below. If you forget, `run()` now raises
   (previously steps silently executed out of their originally defined
   sequence). `run()` raises `RuntimeError` if called reentrantly (e.g. a
   step's own callback calling `run()` again on the same object — this used
-  to let the in-flight step's effects run twice). A step's return value must
-  be JSON-serializable — `run()` raises `TypeError` and marks nothing done
-  otherwise (previously an unserializable result could mark the step done
-  in memory while the subsequent `save()` failed, leaving memory and disk
-  permanently inconsistent within one process).
+  to let the in-flight step's effects run twice). A step's return value gets
+  the SAME persistence validation `store.put()`'s `value` does: `run()`
+  raises `TypeError`/`ValueError` and marks nothing done for a value that
+  isn't JSON-serializable, a dict key of an invalid JSON type, or a dict key
+  collision once stringified (previously a tuple result silently became a
+  list, and a colliding dict key silently collapsed, only after a resume —
+  both are now normalized/validated immediately, and a genuinely
+  unserializable result is rejected before marking the step done, so a save
+  failure can no longer leave memory and disk permanently inconsistent
+  within one process).
   **`.open()`/`.load()` alone does NOT resume anything** — they restore which
   steps already completed but not the Python step functions (never
   serializable). ALWAYS generate code that re-adds every step by the same
@@ -213,9 +253,12 @@ workflow contract below. If you forget, `run()` now raises
   the reducer over events — never store derived state directly. `append()`
   deep-copies and validates its event is JSON-serializable (including
   rejecting NaN/Infinity, which Python's `json` module would otherwise
-  silently write as nonstandard tokens a strict JSON reader can't parse)
-  BEFORE adding it — a rejected event can no longer corrupt the log or block
-  a later valid append. `events()` returns deep copies — mutating a returned
+  silently write as nonstandard tokens a strict JSON reader can't parse),
+  raises `TypeError`/`ValueError` for a dict key of an invalid JSON type or
+  a dict key collision once stringified (the same class of bug already
+  fixed for `store.put()`), and normalizes any tuple inside the event to a
+  list immediately — all BEFORE adding it — a rejected event can no longer
+  corrupt the log or block a later valid append. `events()` returns deep copies — mutating a returned
   event can no longer change stored history. `EventLog.load(path=...)` binds
   further `append()`s to the actual path loaded from (previously they went to
   the default name-derived path instead, invisible to anyone still reading
