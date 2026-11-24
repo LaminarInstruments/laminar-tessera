@@ -20,11 +20,11 @@ Or install a specific wheel file directly. **Three wheels ship; never glob
 them together (`*.whl`) — pick the one matching `python3 --version` and OS:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.6-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.2.0-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.6-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.2.0-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 Each wheel is built for exactly the CPython version/platform in its
 filename — verified to fail outright on any other with "not a supported
@@ -43,7 +43,14 @@ from `src/` (README's REBUILD section) for those.
 | durable multi-step jobs | `from tessera.workflow import Workflow` | `@wf.step`, `add(name, fn)`, `run(ctx=None)`, `completed()`, `reset()`, `Workflow.open/load/create(name, persistence)` |
 | event log / audit | `from tessera.replay import EventLog` | `append(event)`, `events()`, `reconstruct(reducer, initial)`, `EventLog.open/load/create(name, persistence)` |
 | adaptive/drifting thresholds | `from tessera.baseline import AdaptiveBaseline` | `set_rate(alpha,beta)`, `learn(value)`, `value()`, `convergence_rate()`, `oscillating()`, `track_entropy(values)`, `entropy_drift(values)`, `AdaptiveBaseline.open/load/create(name, persistence)` |
+| N independent baselines, one name | `from tessera.baseline import BaselineSet` | `learn(key, value)`, `value(key)`, `keys()`, `save()`, `BaselineSet.open(name, persistence)` |
 | all doors, one shared state | `from tessera.space import Space` | `.agents .store .graph .signals .workflow .replay .baseline`, `save()`, `Space.open/load/create(name, persistence)` |
+| human-in-the-loop approval | `from tessera.flows import ApprovalFlow` | `propose(payload)` → id, `pending()`, `history()`, `get(id)`, `approve(id, note=None)`, `reject(id, note=None)`, `ApprovalFlow.open(name, persistence, on_propose=None)` |
+| "has this already happened?" guard | `from tessera.idempotent import IdempotentLedger` | `seen(key)`, `record(key, detail=None)`, `detail(key)`, `save()`, `IdempotentLedger.open/load/create(name, persistence)` |
+| the one opt-in network call | `from tessera.notify import webhook` | `webhook(url, payload, timeout=5.0, headers=None)` — nothing else in Tessera ever calls this on its own |
+| multi-process file lock | `from tessera.core import FileLock` | `FileLock(name, persistence, timeout=None)` used as `with FileLock(...):` |
+| LangChain chat memory | `from tessera.integrations.langchain_memory import EventLogChatMessageHistory` | `.open/load/create(name, persistence)` → a `langchain_core.chat_history.BaseChatMessageHistory` — requires `langchain-core` installed separately |
+| what's actually in this save file | `python -m tessera.inspect <path>` | read-only shell command; works on any door's save or an `ApprovalFlow`'s `<name>.flow` directory |
 
 ## The single most important rule: use `.open()`, not the plain constructor, on any restart path
 
@@ -59,12 +66,22 @@ store = Store.open(name="inventory", persistence="local")
 ```
 
 `.open()` exists identically on `Store`, `Graph`, `Signals`, `Field`,
-`Workflow`, `EventLog`, and `Space`. There's also `.create(name, persistence)`,
-which raises `FileExistsError` instead of silently resuming — use it when
-resuming old state would itself be a bug (e.g. provisioning a brand-new
-entity that must not collide with an existing one of the same name). The
-plain constructor is unchanged (always starts fresh) for backward
-compatibility — do not generate it for a restart-safe path.
+`Workflow`, `EventLog`, `Space`, `AdaptiveBaseline`, `BaselineSet`,
+`IdempotentLedger`, and `ApprovalFlow`. There's also `.create(name,
+persistence)` (every door above except `BaselineSet` and `ApprovalFlow`,
+which have no single save file to collide over), which raises
+`FileExistsError` instead of silently resuming — use it when resuming old
+state would itself be a bug (e.g. provisioning a brand-new entity that
+must not collide with an existing one of the same name). The plain
+constructor is unchanged (always starts fresh) for backward compatibility
+— do not generate it for a restart-safe path.
+
+Every door with `save()`/`load()`/`open()`/`create()` also has async
+`asave()`/`aload()`/`aopen()`/`acreate()` counterparts (`async def`,
+offloading the same synchronous I/O onto a worker thread via
+`asyncio.to_thread` — same semantics, same exceptions, just awaitable).
+Use these from async code instead of calling the sync versions directly
+inside a coroutine.
 
 For `workflow` specifically, `.open()` only solves half the problem: it
 still does not restore the Python step functions (never serializable). You
@@ -189,6 +206,16 @@ workflow contract below. If you forget, `run()` now raises
   and no longer splits several EQUAL extreme-magnitude readings across
   different bins (both were overflow/underflow edge cases in the binning
   math, not anything about the entropy formula itself).
+  `anomalies_windowed(series, window, threshold=3)` restricts the
+  mean/std/anomaly check to the last `window` readings only, instead of
+  `anomalies()`'s whole-history population check — use this when you need
+  "did something NEW just go wrong in roughly the last N readings," since
+  a plain `anomalies()` call never forgets an old spike (its index stays in
+  the returned list forever) and never adapts if the population statistics
+  should legitimately move on. Returned indices are in the SAME index
+  space as `anomalies()` (into the full series), not relative to the
+  window. Raises `ValueError` for `window < 2` or a non-finite/negative
+  `threshold`, same as `anomalies()`.
 - **workflow:** completed+checkpointed steps are **not re-run** on recovery
   (exactly-once *internal* state). External side effects are **not** exactly-once —
   a crash after an external action but before the checkpoint re-runs the step; use an
@@ -289,6 +316,62 @@ workflow contract below. If you forget, `run()` now raises
   checkpoint taken inside an open `store.transaction()` is NOT invalidated
   by that transaction's later rollback (checkpoints are independent,
   write-ahead-log-style audit points, not transaction-scoped).
+  `BaselineSet(name)` manages N independent `AdaptiveBaseline` instances
+  under one name, keyed by a `str` key (`learn(key, value)`/`value(key)`) —
+  it is still N separate engines underneath, just with the naming/restore
+  bookkeeping done for you. `BaselineSet.open()` restores EVERY key ever
+  `learn()`'d under this name by scanning the persistence directory, not
+  just whichever key the next call happens to touch — `keys()` after
+  `.open()` reflects everything on disk, not only what this process has
+  touched so far.
+- **flows (`ApprovalFlow`):** `propose(payload)` returns an id and persists
+  the proposal immediately, as its OWN file (not one shared blob for the
+  whole flow) — this is deliberate: two different processes calling
+  `propose()` at the same time write two different files, so neither
+  silently overwrites the other the way a single shared save file would.
+  `approve()`/`reject()` **raise `AlreadyResolvedError`** if the proposal
+  was already resolved (by anyone, from any process) — a decision, once
+  made, is final; this is also what makes it safe to call from a
+  completely different process than the one that called `propose()`.
+  `pending()`/`history()` are read by scanning disk fresh each time — a
+  proposal resolved from another process between two calls is reflected
+  immediately. Unknown proposal id raises `UnknownProposalError`. No
+  `save()`/`load()`/`create()` — only `.open()` (there's no single file to
+  resume into; each proposal already persists itself on `propose()`).
+  `on_propose`, if passed to `.open()`, is called with the new `Proposal`
+  AFTER it's durably saved; if it raises, that's caught and turned into a
+  `warnings.warn()`, never a raised exception out of `propose()` — a flaky
+  notification (e.g. a `webhook()` timeout) must not make a successfully
+  saved proposal look like it failed to save.
+- **idempotent (`IdempotentLedger`):** `seen(key)`/`record(key, detail=None)`
+  is a check-then-act pattern backed by `tessera.store.Store` — NOT atomic
+  against a concurrent writer touching the SAME key from a different
+  process at the same instant (same single-writer caveat as every other
+  door; use `tessera.core.FileLock` yourself if you need to close that
+  gap). Call `record()` only AFTER the real, non-repeatable external
+  effect has actually happened — never before, or a crash between
+  `record()` and the effect marks something done that never ran.
+  Re-`record()`-ing an already-recorded key overwrites `detail` but does
+  not change `seen()`'s answer (it was already `True`).
+- **notify (`webhook`):** the ONLY place anything in this package makes a
+  network call, and only because you called it yourself — nothing in
+  Tessera invokes it automatically. Raises `ValueError` up front for a
+  non-`http(s)://` URL (so it can never be pointed at a local `file://`
+  path). Raises `WebhookError` for a connection failure, a timeout, or a
+  non-2xx response — it does NOT swallow its own failures; the
+  fire-and-forget behavior lives one layer up, in `ApprovalFlow`'s
+  `on_propose` wrapper, not in `webhook()` itself.
+- **core (`FileLock`, migrations):** `FileLock` is advisory (POSIX
+  `fcntl.flock`), opt-in, and coordinates only OTHER code that also takes
+  the same `FileLock` — it does nothing to stop code that calls `save()`
+  directly without acquiring it first. Not reentrant within one process —
+  a second `FileLock` on the same path from the SAME process, acquired
+  before the first is released, blocks (or times out) exactly like a
+  second process would. `tessera.core.apply_migrations()`/`schema_version()`
+  are the general framework every door's own pre-existing-save migrations
+  (e.g. `Field`'s pre-0.1.6 un-namespaced-descriptor migration) are built
+  on; you will not need to call these directly unless you're extending a
+  door yourself.
 
 ## Determinism
 Same inputs ⇒ same outputs, every run. Safe to snapshot/replay. No randomness is

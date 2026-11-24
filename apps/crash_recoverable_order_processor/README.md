@@ -33,10 +33,18 @@ relaunches the same command as the resume.
 not checkpointed before the kill, so resume re-ran it — a real second
 ledger line for the same order. **This is the exact double-charge risk named
 in the Cookbook, triggered with an actual process kill, not described in the
-abstract.** With a one-line idempotency check (skip charging if this
-order_id is already in the ledger), the same kill + resume produces exactly
-one charge. Meanwhile `reserve` — which *was* checkpointed before the kill —
-correctly does not re-run either way.
+abstract.** With the `--idempotent` guard (skip charging if `tessera.idempotent
+.IdempotentLedger.seen(order_id)` is already True), the same kill + resume
+produces exactly one charge. Meanwhile `reserve` — which *was* checkpointed
+before the kill — correctly does not re-run either way.
+
+The guard itself is `tessera.idempotent.IdempotentLedger` — this app
+originally hand-rolled it (a linear scan over `charges.log` for a matching
+`order_id`), and that hand-rolled version is what motivated promoting it to
+its own door. `charges.log` (the plain append-only file `charge()` writes to
+on every REAL charge) is unchanged — it's standing in for the external
+payment provider's own ledger, not Tessera's; `IdempotentLedger` is only
+the guard deciding whether to call that external effect again.
 
 Run it: `python3 crash_test.py`
 Run the (non-crash) correctness suite: `python3 test_order_processor.py`
@@ -78,10 +86,10 @@ exception at all.
 - Single-writer, single-machine. No distributed workers, no multi-process
   coordination — two processes resuming the same `order_id` concurrently
   will race.
-- The idempotency check here is a linear scan of a JSON-lines file. Fine for
-  a demo; a real system would index this (e.g. a dict keyed by order_id, or
-  push the idempotency key to the actual payment provider's API instead of
-  reimplementing it locally).
+- `IdempotentLedger` closes the "fine for a demo" gap an earlier,
+  hand-rolled linear-scan version of this check had — but a real system
+  may still prefer to push the idempotency key to the actual payment
+  provider's API instead of (or in addition to) tracking it locally.
 - `ship()`'s result isn't similarly guarded — this demo only idempotency-
   protects the step that actually costs money. Guard any other
   side-effecting step the same way if it matters for your use case.

@@ -23,11 +23,11 @@ platform automatically. Or install a specific wheel file directly:
 
 ```bash
 python3 --version   # check first — there's more than one wheel now
-pip install laminar_tessera-0.1.6-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, macOS
+pip install laminar_tessera-0.2.0-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, macOS
 # or:
-pip install laminar_tessera-0.1.6-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
+pip install laminar_tessera-0.2.0-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, macOS arm64
 # or:
-pip install laminar_tessera-0.1.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 Zero third-party dependencies. The *source* supports Python 3.9+, but **each
@@ -36,8 +36,8 @@ filename** (verified: the `cp313` wheel fails outright on 3.11 with `"is not
 a supported wheel on this platform"`). The `cp311` macOS wheel and the
 `cp312` manylinux2014 Linux wheel were each produced by rebuilding from
 `src/`, proving the rebuild path works for more than one platform — the
-Linux wheel was verified inside an actual manylinux_2_28 container (self-test,
-all four `apps/` suites, and the real `SIGKILL` crash-recovery harness all
+Linux wheel was verified inside an actual manylinux2014_x86_64 container (self-test,
+all five `apps/` suites, and both real `SIGKILL` crash-recovery harnesses all
 pass there). For any other Python version or OS, rebuild from `src/` per the
 README's REBUILD section, or ship a wheel per target via `cibuildwheel`.
 
@@ -353,10 +353,124 @@ be aware the namespaces are shared across doors.
 
 ---
 
+## 9. flows — human-in-the-loop, durably
+
+Propose an action, let it sit as a pending decision until a human approves
+or rejects it — possibly from an entirely different process, possibly
+after a restart.
+
+```python
+from tessera.flows import ApprovalFlow
+
+flow = ApprovalFlow.open("refund-approvals", persistence="local")
+proposal_id = flow.propose({"action": "refund", "order": "A-104", "amount": 42.00})
+
+# ... anytime later, in this process or a different one ...
+for p in flow.pending():
+    print(p.id, p.payload)
+
+flow.approve(proposal_id, note="confirmed with customer")
+```
+
+Each proposal is persisted as its OWN file, not one shared blob for the
+whole flow — so two processes calling `propose()` at the same time write
+two different files, with no collision. `approve()`/`reject()` raise
+`AlreadyResolvedError` on an already-resolved proposal; a decision, once
+made, is final.
+
+## 10. idempotent — has this already happened?
+
+A durable, once-per-key guard for a real external effect (charging a
+card, sending an email) against running twice on workflow resume after a
+crash:
+
+```python
+from tessera.idempotent import IdempotentLedger
+
+ledger = IdempotentLedger.open("charges", persistence="local")
+if not ledger.seen("order-123"):
+    charge_card(...)                       # the real, non-repeatable effect
+    ledger.record("order-123")             # only AFTER it actually happened
+    ledger.save()
+```
+
+Backed by `tessera.store.Store`, not a bespoke file format — replaces the
+hand-rolled append-only-log-plus-linear-scan pattern two of the shipped
+flagship apps built independently before this existed.
+
+## 11. notify — the one opt-in network call
+
+Everything else in this package is offline. `tessera.notify.webhook()` is
+the single, deliberate exception, and it only runs when you wire it in —
+typically as an `ApprovalFlow`'s `on_propose`:
+
+```python
+from tessera.notify import webhook
+
+flow = ApprovalFlow.open("alerts", persistence="local",
+    on_propose=lambda p: webhook("https://hooks.example.com/...", {"id": p.id}))
+```
+
+Raises `WebhookError` on a connection failure, timeout, or non-2xx
+response. A failure inside `on_propose` is caught by `ApprovalFlow` and
+turned into a warning — it never makes a successfully-saved proposal look
+like it failed to save.
+
+## 12. Calling any door from async code
+
+Every door with `save()`/`load()`/`open()`/`create()` has `asave()`/
+`aload()`/`aopen()`/`acreate()` counterparts — `async def`, offloading the
+same synchronous file I/O onto a worker thread via `asyncio.to_thread`:
+
+```python
+import asyncio
+from tessera.store import Store
+
+async def main():
+    store = await Store.aopen("inventory", persistence="local")
+    store.put("widgets", 120)
+    await store.asave()
+
+asyncio.run(main())
+```
+
+Same semantics, same exceptions as the sync versions — just awaitable, so
+calling them from a coroutine doesn't block the event loop for the
+duration of the disk operation.
+
+## 13. Looking inside a save file, and locking across processes
+
+`python -m tessera.inspect <path>` is a read-only CLI that prints what's
+actually persisted in any door's save file (or an `ApprovalFlow`'s
+`<name>.flow` directory) — every door's save shares one engine schema, so
+it works the same regardless of which door wrote it:
+
+```bash
+python -m tessera.inspect ~/.tessera/warehouse.space.json
+```
+
+`tessera.core.FileLock` is an opt-in, POSIX advisory file lock for a
+read-modify-write you need atomic across processes yourself — Tessera
+provides no multi-writer coordination by default:
+
+```python
+from tessera.core import FileLock
+from tessera.store import Store
+
+with FileLock("inventory-lock", persistence="local"):
+    store = Store.open("inventory", persistence="local")
+    store.put("widgets", store.get("widgets", 0) + 1)
+    store.save()
+```
+
+---
+
 ## What you can rely on (the guarantees)
 
 - **Deterministic** — same inputs, same outputs, every run.
-- **Offline** — no server, no cloud, nothing phones home.
+- **Offline** — no server, no cloud, nothing phones home — except
+  `tessera.notify.webhook()`, the one function in this package that makes
+  a network call, and only when you call it yourself.
 - **Durable** — `save()` is an atomic write (temp file + fsync + atomic rename);
   it does not protect against a lying storage controller (a hardware property).
 - **Transactional** — `store.transaction()` is all-or-nothing on internal state.

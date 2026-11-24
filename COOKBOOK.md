@@ -18,11 +18,11 @@ Or install a specific wheel file directly:
 
 ```bash
 python3 --version                                         # check this FIRST — three wheels ship now
-pip install laminar_tessera-0.1.6-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
+pip install laminar_tessera-0.2.0-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.6-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.2.0-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 **Each wheel installs on exactly the Python version/platform in its
@@ -32,8 +32,8 @@ this platform` — no partial install, no fallback, just a dead stop. The
 `cp311` macOS wheel and the `cp312` manylinux2014 Linux wheel were each
 built and verified from source specifically to prove those paths work (see
 README's REBUILD section) — they're real, tested (the Linux wheel was
-verified inside an actual manylinux_2_28 container: selftest, all four
-`apps/` suites, and the real `SIGKILL` crash-recovery harness all pass),
+verified inside an actual manylinux2014_x86_64 container: selftest, all five
+`apps/` suites, and both real `SIGKILL` crash-recovery harnesses all pass),
 but still only cover what's listed above. If your platform/Python version
 isn't one of the three, you need to rebuild before any of the rest of
 this document is reachable.
@@ -255,6 +255,8 @@ just one).
 | Something that remembers, forks a decision, and commits it | `agents` | 9 |
 | Something whose "normal" legitimately drifts over time | `baseline` | 10 |
 | All of the above, sharing one piece of state | `space` | 11 |
+| A human must approve an action before it happens | `flows` | 12 |
+| A real-world effect must never run twice | `idempotent` | 13 |
 
 ---
 
@@ -660,6 +662,87 @@ anything.
 
 ---
 
+## Recipe 12 — A human must approve an action before it happens (`flows`)
+
+`ApprovalFlow` is durable propose → pending → approve/reject, with each
+proposal persisted as ITS OWN file — not one shared blob for the whole
+flow — specifically so a human (or a second process entirely) can approve
+or reject it later, from somewhere else, without racing the process that
+proposed it.
+
+```python
+from tessera.flows import ApprovalFlow
+
+flow = ApprovalFlow.open("refund-approvals", persistence="local")
+
+proposal_id = flow.propose({"action": "refund", "order": "A-104", "amount": 42.00})
+
+# ... anytime later, possibly from a completely different process ...
+for p in flow.pending():
+    print(p.id, p.payload)
+# <id> {'action': 'refund', 'order': 'A-104', 'amount': 42.0}
+
+flow.approve(proposal_id, note="confirmed with customer")
+flow.get(proposal_id).status   # 'approved'
+
+# approving (or rejecting) a second time raises -- a decision, once made, is final
+flow.approve(proposal_id)      # raises AlreadyResolvedError
+```
+
+Want a notification the moment someone proposes something (Slack, a pager,
+anything reachable over HTTP)? `webhook()` is the one place this package
+makes a network call, and only because you wire it in yourself:
+
+```python
+from tessera.notify import webhook
+
+flow = ApprovalFlow.open(
+    "refund-approvals", persistence="local",
+    on_propose=lambda p: webhook("https://hooks.example.com/...", {
+        "text": f"New refund proposal {p.id}: {p.payload}"
+    }),
+)
+```
+
+If that webhook call fails (timeout, bad URL, the endpoint is down), the
+proposal is still saved — `on_propose` failures are caught and turned into
+a `warnings.warn()`, never a raised exception out of `propose()`.
+
+---
+
+## Recipe 13 — A real-world effect must never run twice (`idempotent`)
+
+Every `workflow` step with a real external effect (charging a card,
+sending an email) needs its own idempotency guard — a crash after the
+effect but before the step's checkpoint re-runs the step on resume (see
+Part "Gotcha" in Recipe 7). `IdempotentLedger` is that guard, formalized:
+
+```python
+from tessera.idempotent import IdempotentLedger
+from tessera.workflow import Workflow
+
+ledger = IdempotentLedger.open("charges", persistence="local")
+wf = Workflow.open("checkout-A1", persistence="local")
+
+def charge(ctx):
+    if ledger.seen(ctx["order_id"]):
+        return {"paid": True, "skipped": True}   # already happened -- don't repeat it
+    really_charge_the_card(ctx["order_id"], ctx["qty"])   # the real, non-repeatable effect
+    ledger.record(ctx["order_id"], detail={"qty": ctx["qty"]})
+    ledger.save()
+    return {"paid": True}
+
+wf.add("charge", charge)
+wf.run({"order_id": "A1", "qty": 3})
+```
+
+`record()` must run AFTER the real effect, not before — a crash between
+them would mark something done that never actually happened. See
+`apps/crash_recoverable_order_processor` for this exact pattern proven
+against a real `SIGKILL`, not just described.
+
+---
+
 ## Part 3.5 — Findings from independent adversarial testing (verified, now fixed)
 
 Four independent AI coding agents were each given only the shipped wheel and
@@ -855,6 +938,72 @@ several of them regressions in the v0.1.6 fixes themselves:
   instead of silently corrupting state, and a nested `async with` on the
   SAME task no longer deadlocks (the lock is now reentrant per-task).
 
+### v0.2.0 — twelve extensions, each built because a real flagship app needed it
+
+Every item below exists because `apps/incident_response_coordinator` (or an
+earlier app) hand-rolled it first, found a real gap doing so, and this
+release promoted the fix into the SDK itself — not speculative API surface
+added without a forcing use case.
+
+- **`agents.commit()`'s staleness check used the engine-wide op counter**,
+  so any OTHER door's activity inside a shared `Space` between `fork()` and
+  `commit()` made a perfectly fresh commit look stale, forcing
+  `force=True` even when nothing related had actually changed. Now tracked
+  per-field (a generation counter scoped to each `Field`'s own unit), so
+  unrelated `store`/`signals`/`replay` traffic no longer poisons the check;
+  real staleness is still caught exactly as before.
+- **`tessera.baseline.BaselineSet`** — manages N independent
+  `AdaptiveBaseline` instances under one name, restoring every key ever
+  used (not just whichever one the next call happens to touch) on
+  `.open()`. Replaces the hand-rolled `{service:
+  AdaptiveBaseline.open(...)}` dict pattern.
+- **`Signals.anomalies_windowed(series, window, threshold=3)`** — a sliding
+  window alternative to `anomalies()`'s whole-history population check, so
+  an old spike scrolls out and stops being flagged instead of staying in
+  the returned list forever.
+- **`tessera.core.FileLock`** — opt-in, POSIX advisory file locking
+  (`fcntl.flock`) for callers who need a read-modify-write atomic across
+  processes. Tessera still provides no multi-writer coordination by
+  default; this is the tool for when you need to build your own.
+- **`tessera.core.apply_migrations()`/`schema_version()`** — the general
+  schema-migration framework `agents.Field`'s own pre-0.1.6
+  un-namespaced-descriptor migration is now built on, for anyone extending
+  a door who needs the same "upgrade an old save transparently" pattern.
+- **`tessera.flows.ApprovalFlow`** — durable human-in-the-loop
+  propose/pending/approve/reject, with each proposal persisted as its own
+  file so a different process can approve or reject it later without
+  racing the one that proposed it. See Recipe 12.
+- **`tessera.idempotent.IdempotentLedger`** — formalizes the
+  hand-rolled append-only-log-plus-linear-scan idempotency pattern
+  `apps/crash_recoverable_order_processor` and
+  `apps/incident_response_coordinator` each built separately, backed by
+  `tessera.store.Store` instead of a bespoke file format. See Recipe 13.
+- **`tessera.notify.webhook()`** plus `ApprovalFlow`'s optional
+  `on_propose` hook — the ONE place this package makes a network call, and
+  only because you wired it in yourself; a failing notification is caught
+  and warned, never allowed to make a successfully-saved proposal look
+  like it failed.
+- **`tessera.integrations.langchain_memory.EventLogChatMessageHistory`** —
+  wraps `replay.EventLog` as a LangChain `BaseChatMessageHistory`. Lazily
+  imports `langchain-core` (not a dependency of the base package) only
+  when actually constructed; `clear()` raises `NotImplementedError` rather
+  than silently no-op'ing, since `EventLog` is append-only by design.
+- **`.pyi` type stubs + a `py.typed` marker, for every door** — `pip
+  install`'d IDE/mypy autocompletion and type-checking against the real
+  public signatures, verified against a real `mypy` run catching
+  deliberately-wrong calls with zero false positives on correct ones.
+- **`python -m tessera.inspect <path>`** — a read-only CLI that prints a
+  human-readable summary of what's actually in any door's save file (or an
+  `ApprovalFlow`'s `<name>.flow` directory) — every door's save shares one
+  engine schema, so this works identically regardless of which door wrote
+  it.
+- **`asave()`/`aload()`/`aopen()`/`acreate()`** — async counterparts of
+  every door's synchronous I/O methods, offloading the same blocking
+  file I/O onto a worker thread via `asyncio.to_thread`. Same semantics,
+  same exceptions, just awaitable — verified to genuinely run concurrently
+  (four 0.3s saves issued via `asyncio.gather` completed in ~0.3s total,
+  not 1.2s).
+
 ## Part 4 — Error reference
 
 Every row below was triggered on purpose and the exact exception/behavior
@@ -909,6 +1058,10 @@ use case:
   same time will race — `save()` now raises a clear `ConcurrentWriteError`
   instead of an internals-leaking crash, but that's a better failure mode,
   not coordination; lost updates are still possible.
+  `tessera.core.FileLock` is an opt-in escape hatch (POSIX advisory
+  locking) for a read-modify-write you need atomic across processes
+  yourself — it is not on by default, and only coordinates other code
+  that also takes the same lock.
 - **`signals.anomalies()`'s threshold is still static** (a caller-supplied
   `threshold=` standard-deviations cutoff) — if you need a threshold that
   learns and moves over time instead of one you hardcode, that's what the
@@ -948,7 +1101,8 @@ knowing before you build something that assumes otherwise.
 - [ ] Catching exceptions raised inside `store.transaction()` — it never
       swallows them.
 - [ ] Every `workflow` step with an external side effect has an idempotency
-      key.
+      guard — `tessera.idempotent.IdempotentLedger` (Recipe 13), not a
+      hand-rolled log scan.
 - [ ] Reading workflow results as `ctx["<step_name>"]`, not flat keys.
 - [ ] Not comparing `signals.entropy()` across different series/baselines as
       if it were a normalized severity score — it isn't one.

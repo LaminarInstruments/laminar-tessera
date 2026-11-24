@@ -6,8 +6,9 @@ card) that crashes AFTER the effect but BEFORE its checkpoint WILL re-run on
 resume. Without an idempotency key, that double-charges. With one, it doesn't.
 
 Tessera components used:
-    workflow (tessera.workflow.Workflow) — resumable reserve -> charge -> ship
-    replay   (tessera.replay.EventLog)   — durable trail of what happened
+    workflow    (tessera.workflow.Workflow)       — resumable reserve -> charge -> ship
+    replay      (tessera.replay.EventLog)         — durable trail of what happened
+    idempotent  (tessera.idempotent.IdempotentLedger) — the --idempotent guard itself
 
 Usage:
     python3 order_processor.py run <persist_dir> <order_id> <qty> [--idempotent]
@@ -26,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from tessera.workflow import Workflow
 from tessera.replay import EventLog
+from tessera.idempotent import IdempotentLedger
 
 CHARGE_WINDOW_SECONDS = 2.0
 
@@ -36,16 +38,6 @@ def ledger_path(persist_dir):
 
 def marker_path(persist_dir):
     return Path(persist_dir) / "charging.marker"
-
-
-def already_charged(persist_dir, order_id):
-    p = ledger_path(persist_dir)
-    if not p.exists():
-        return False
-    for line in p.read_text().splitlines():
-        if line.strip() and json.loads(line)["order_id"] == order_id:
-            return True
-    return False
 
 
 def append_charge(persist_dir, order_id, qty):
@@ -78,18 +70,28 @@ def run_checkout(persist_dir, order_id, qty, idempotent):
     Path(persist_dir).mkdir(parents=True, exist_ok=True)
     wf = _load_or_create_workflow(f"checkout-{order_id}", persist_dir)
     log = _load_or_create_eventlog(f"checkout-{order_id}-events", persist_dir)
+    # IdempotentLedger.open() is the safe load-or-create entry point, same
+    # category of helper as _load_or_create_workflow/_load_or_create_eventlog
+    # above — it's immune to the load-vs-construct trap by construction.
+    ledger = IdempotentLedger.open(f"checkout-{order_id}-charges", persistence=persist_dir)
 
     def reserve(ctx):
         log.append({"event": "reserved", "order_id": order_id, "qty": ctx["qty"]})
         return {"held": ctx["qty"]}
 
     def charge(ctx):
-        if idempotent and already_charged(persist_dir, order_id):
+        if idempotent and ledger.seen(order_id):
             # the external effect already happened on a previous attempt —
             # do NOT repeat it, just record that this step is now satisfied.
             return {"paid": True, "charge_skipped_already_done": True}
 
         append_charge(persist_dir, order_id, ctx["qty"])   # <-- the external effect
+        # Durably recorded BEFORE the marker/sleep — a SIGKILL in the window
+        # below must still leave the ledger entry on disk, the same way
+        # append_charge()'s own write already is, or resume's seen() check
+        # would wrongly miss it and double-charge anyway.
+        ledger.record(order_id, detail={"qty": ctx["qty"]})
+        ledger.save()
         marker_path(persist_dir).write_text("charging")     # signal: effect is done
         time.sleep(CHARGE_WINDOW_SECONDS)                    # crash-test window
         log.append({"event": "charged", "order_id": order_id})

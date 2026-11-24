@@ -3,7 +3,7 @@
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 darreck@laminarinstruments.com · laminarinstruments.com
 
-Generated from the live public signatures of `tessera 0.1.6`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
+Generated from the live public signatures of `tessera 0.2.0`, including inherited/class methods. Methods starting with `_` are omitted. This is the exact surface you build against — if a method you saw in a guide isn't listed here, that's a bug in this file, not permission to guess.
 
 ## tessera.agents
 
@@ -68,6 +68,10 @@ An agent's unified state — memory, relationships, and decisions in one.
       this field's own logical `name` inside the saved state (see `load()`).
 - `state(self)`
     - The agent's current view: key -> latest value. Returns a deep copy.
+- *async:* `asave(self, path=None)`, `classmethod aload(name, persistence='local', path=None)`,
+  `classmethod aopen(name, persistence=None)`, `classmethod acreate(name, persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
 
 ### `class Program`
 A named thing an agent can run.
@@ -133,6 +137,10 @@ A named thing an agent can run.
       Store now raises `RuntimeError` instead of silently proceeding
       unguarded if the other flavor currently has a transaction open — use
       one flavor consistently for a Store also accessed from async code.
+- *async:* `asave(self, path=None)`, `classmethod aload(name='store', persistence='local', path=None)`,
+  `classmethod aopen(name='store', persistence=None)`, `classmethod acreate(name='store', persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
 
 ## tessera.graph
 
@@ -178,6 +186,10 @@ A named thing an agent can run.
       `None` if `node` was never `connect()`'d (consistent with `path()`).
 - `save(self, path=None)`
     - Same `ValueError`/`ConcurrentWriteError` conditions as `Store.save()`.
+- *async:* `asave(self, path=None)`, `classmethod aload(name='graph', persistence='local', path=None)`,
+  `classmethod aopen(name='graph', persistence=None)`, `classmethod acreate(name='graph', persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
 
 ## tessera.signals
 
@@ -236,6 +248,18 @@ A named thing an agent can run.
 - `stats(self, series)`
     - Running count / mean / std for a stream. Raises `ValueError` if
       `series` was never `measure()`'d.
+- `anomalies_windowed(self, series, window, threshold=3)`
+    - Like `anomalies()`, but the mean/std comes from only the last
+      `window` readings, not the whole series — an old spike scrolls out
+      of the window and stops being flagged, instead of staying in the
+      returned index list forever. Returned indices are in the SAME index
+      space as `anomalies()` (into the full series). Raises `ValueError`
+      for `window < 2`, a non-finite/negative `threshold`, or a `series`
+      never `measure()`'d.
+- *async:* `asave(self, path=None)`, `classmethod aload(name='signals', persistence='local', path=None)`,
+  `classmethod aopen(name='signals', persistence=None)`, `classmethod acreate(name='signals', persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
 
 ## tessera.workflow
 
@@ -289,6 +313,11 @@ A named thing an agent can run.
 - `step(self, fn)`
     - Decorator: register a step, run in registration order. Same duplicate
       check as `add()`.
+- *async:* `classmethod aload(name, persistence='local', path=None)`,
+  `classmethod aopen(name, persistence=None)`, `classmethod acreate(name, persistence=None)`
+    - No `asave()` — `Workflow` has no standalone `save()` either (it
+      persists automatically after every step). Same semantics/exceptions
+      as the sync versions, offloaded onto a worker thread.
 
 ## tessera.replay
 
@@ -325,6 +354,11 @@ A named thing an agent can run.
     - Fold the whole history into a state via reducer(state, event). Not
       cryptographically tamper-evident — a hand-edited save file reconstructs
       silently with no detection.
+- *async:* `classmethod aload(name='log', persistence='local', path=None)`,
+  `classmethod aopen(name='log', persistence=None)`, `classmethod acreate(name='log', persistence=None)`
+    - No `asave()` — `EventLog` has no standalone `save()` either (every
+      `append()` is durable immediately). Same semantics/exceptions as the
+      sync versions, offloaded onto a worker thread.
 
 ## tessera.baseline
 
@@ -392,12 +426,47 @@ engine's adaptive feedback (EMA) and entropy-baseline capability.
 - `value(self)`
     - The current learned baseline (`0.5` if `learn()` has never been
       called).
+- *async:* `asave(self, path=None)`, `classmethod aload(name, persistence='local', path=None)`,
+  `classmethod aopen(name, persistence=None)`, `classmethod acreate(name, persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
 
 **Contract:** one instance tracks ONE scalar baseline — the engine's
 feedback state (alpha/beta/ema) is a single triple, not keyed by series
 name (verified by direct probing of the raw engine). Open a separate named
 `AdaptiveBaseline` per thing tracked independently, same as every other
 door.
+
+### `class BaselineSet`
+N independent `AdaptiveBaseline` instances, one per key, managed under one
+name — for tracking the same kind of thing separately per entity (per
+service, per patient) without hand-rolling a dict of
+`AdaptiveBaseline.open()` calls yourself.
+
+- `__init__(self, name, persistence=None)`
+- `__contains__(self, key)`, `__len__(self)`, `__getitem__(self, key)`
+    - `self[key]` returns the `AdaptiveBaseline` for `key`, creating it
+      (fresh) the first time this key is seen.
+- `items(self)`, `keys(self)`, `values(self)`
+- `learn(self, key, value)`
+    - Feed one new reading into the baseline tracked under `key`.
+- `classmethod open(name, persistence=None)`
+    - THE entry point for any `BaselineSet`: restores every key ever saved
+      under this name by scanning the persistence directory for
+      `<name>--<key>.baseline.json` files — not just whichever key the
+      next `learn()`/`value()` call happens to touch.
+- `save(self)`
+    - Saves every member this process has touched. Raises `ValueError` if
+      in-memory.
+- `value(self, key)`
+    - The current learned baseline for `key`.
+- *async:* `asave(self)`, `classmethod aopen(name, persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
+
+**Contract:** `key` must be a non-empty `str` — raises `ValueError`
+otherwise. Still N separate engines underneath; `BaselineSet` only
+manages the naming/restore bookkeeping.
 
 ## tessera.space
 
@@ -420,6 +489,159 @@ Seven doors sharing one engine and one unit of state.
       **Inside a `Space`, `replay`/`workflow` do NOT auto-persist the way
       they do standalone** — nothing in a `Space` is durable until this is
       called (see `COOKBOOK.md` Part 2.2). Can raise `ConcurrentWriteError`.
+- *async:* `asave(self, path=None)`, `classmethod aload(name='space', persistence='local', path=None)`,
+  `classmethod aopen(name='space', persistence=None)`, `classmethod acreate(name='space', persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
+
+## tessera.flows
+
+### `class ApprovalFlow`
+Durable, human-in-the-loop propose → pending → approve/reject, with each
+proposal persisted as its OWN file (not one shared blob for the whole
+flow) — so two different processes calling `propose()` at the same time
+write two different files, with no collision.
+
+- `__init__(self, name, persistence=None, on_propose=None)`
+    - `on_propose`, if given, is called as `on_propose(proposal)` with the
+      freshly-created, already-durably-persisted `Proposal` every time
+      `propose()` succeeds. Any exception it raises is caught and turned
+      into a `warnings.warn()`, never a raise out of `propose()`.
+- `approve(self, proposal_id, note=None)`
+    - Resolve a pending proposal as approved. Returns the resolved
+      `Proposal`. Raises `AlreadyResolvedError` if it was already approved
+      or rejected.
+- `get(self, proposal_id)`
+    - The current record for `proposal_id`. Raises `UnknownProposalError`
+      if it was never proposed under this flow name/persistence.
+- `history(self)`
+    - Every proposal ever made under this flow, resolved or not, oldest
+      first.
+- `classmethod open(name, persistence=None, on_propose=None)`
+    - THE entry point for any flow — unlike other doors, there's no
+      separate create()/load() distinction to get wrong.
+- `pending(self)`
+    - Every proposal still awaiting a decision, oldest first.
+- `propose(self, payload)`
+    - Record a new pending proposal. Returns its id (a `str`).
+- `reject(self, proposal_id, note=None)`
+    - Resolve a pending proposal as rejected. Same `AlreadyResolvedError`
+      condition as `approve()`.
+- *async:* `classmethod aopen(name, persistence=None, on_propose=None)`
+    - Offloaded onto a worker thread via `asyncio.to_thread`. `on_propose`
+      itself is still called synchronously from inside `propose()` either
+      way — it is not awaited even if it happens to be a coroutine
+      function.
+
+### `class Proposal`
+One proposal's full record — returned by `propose()`/`get()`/`pending()`/
+`history()`, never constructed directly. Fields: `id`, `payload`,
+`status` (`'pending'`/`'approved'`/`'rejected'`), `proposed_at`,
+`resolved_at`, `note`.
+
+**Exceptions (importable from `tessera.flows`, NOT re-exported at
+top-level `tessera`):** `UnknownProposalError` (subclass of `KeyError`),
+`AlreadyResolvedError` (subclass of `RuntimeError`).
+
+## tessera.idempotent
+
+### `class IdempotentLedger`
+Has this already happened? A durable, once-per-key check for guarding a
+real external effect against being repeated on workflow resume after a
+crash. Backed by `tessera.store.Store`, not a bespoke file format.
+
+- `__init__(self, name='idempotent', persistence=None, _store=None)`
+- `classmethod create(name='idempotent', persistence=None)`
+    - Create new state; raise FileExistsError if a save already exists.
+- `detail(self, key)`
+    - Whatever `detail` was passed to `record(key)`, or `None` if `key`
+      was never recorded.
+- `classmethod load(name='idempotent', persistence='local', path=None)`
+- `classmethod open(name='idempotent', persistence=None)`
+    - Load existing state if a save already exists; otherwise create fresh.
+- `record(self, key, detail=None)`
+    - Mark `key`'s effect as done, AFTER it actually happened. `detail`
+      (any JSON-safe value) is kept alongside for audit. Re-`record()`-ing
+      an already-recorded key overwrites `detail` but doesn't change
+      `seen()`'s answer.
+- `save(self, path=None)`
+- `seen(self, key)`
+    - `True` if `record(key)` has ever been called and persisted — the
+      signal to SKIP the real effect because it already ran.
+- *async:* `asave(self, path=None)`, `classmethod aload(name='idempotent', persistence='local', path=None)`,
+  `classmethod aopen(name='idempotent', persistence=None)`, `classmethod acreate(name='idempotent', persistence=None)`
+    - Same semantics/exceptions as the sync versions, offloaded onto a
+      worker thread via `asyncio.to_thread`.
+
+**Contract:** `key` must be a non-empty `str` — raises `ValueError`
+otherwise. `seen()`/`record()` is check-then-act, not atomic against a
+concurrent writer touching the SAME key from a different process at the
+same instant — same single-writer caveat as every other door.
+
+## tessera.notify
+
+The ONE place this package makes a network call, and only because you
+called it yourself — nothing in Tessera invokes it automatically.
+
+- `webhook(url, payload, timeout=5.0, headers=None)`
+    - POSTs `payload` (JSON-serialized) to `url`. Raises `ValueError` up
+      front for a non-`http://`/`https://` URL (so it can never be pointed
+      at a local `file://` path) or a non-positive `timeout`. Raises
+      `WebhookError` for a connection failure, a timeout, or a non-2xx
+      response — it does NOT swallow its own failures; returns the
+      response body (`bytes`) on success.
+- `WebhookError` (subclass of `RuntimeError`)
+
+## tessera.core
+
+### `class FileLock`
+Opt-in, POSIX advisory file locking (`fcntl.flock`) for callers who need a
+read-modify-write atomic across processes — Tessera provides no
+multi-writer coordination by default; this is the tool for building your
+own.
+
+- `__init__(self, name, persistence=None, timeout=None)`
+    - Raises `ValueError` if `persistence` is `None`/`'memory'` (a lock
+      that coordinates nothing isn't meaningful), or if `timeout` is
+      negative.
+- `acquire(self)`
+    - Blocks until the lock is free, or raises `TimeoutError` if `timeout`
+      was set and that many seconds pass first.
+- `release(self)`
+    - No-op if not currently held.
+- `__enter__(self)` / `__exit__(self, exc_type, exc, tb)`
+    - Usable as `with FileLock(...):`.
+
+**Contract:** advisory, not mandatory — only blocks another process that
+ALSO takes this same lock. Not reentrant within one process: a second
+`FileLock` on the same path from the SAME process, acquired before the
+first is released, blocks (or times out) exactly like a second process
+would. POSIX only.
+
+### Module-level (schema migration framework)
+- `schema_version(spu, door_name)` → `int`
+- `apply_migrations(spu, door_name, migrations)`
+    - Brings `door_name`'s persisted data up to the latest of `migrations`
+      (an ordered list of `fn(spu)` callables). Only migrations after the
+      already-recorded version run. This is what every door's own
+      pre-existing-save migration (e.g. `agents.Field`'s pre-0.1.6
+      un-namespaced-descriptor migration) is built on.
+- `to_thread(fn, *args, **kwargs)` — `async`
+    - Shared helper behind every door's `asave()`/`aload()`/`aopen()`/
+      `acreate()`: runs `fn(*args, **kwargs)` via `asyncio.to_thread`.
+
+## tessera.inspect
+
+A read-only CLI — not a class, no public Python API beyond:
+
+- `inspect_path(path)` → `str`
+    - A human-readable multi-line summary of what's persisted at `path` —
+      a single door/Space save file, or an `ApprovalFlow` directory.
+      Raises `FileNotFoundError`/`ValueError`.
+
+```bash
+python -m tessera.inspect <path>
+```
 
 ## Exceptions
 
@@ -436,8 +658,16 @@ one of these, importable from top-level `tessera`:
 - `tessera.InvalidSaveFileError` (subclass of `ValueError`) — raised by any
   door's `.load()`/`.open()` when the target file exists but is corrupted or
   not shaped like a Tessera save.
+- `tessera.WebhookError` (subclass of `RuntimeError`) — raised by
+  `tessera.notify.webhook()` for a connection failure, timeout, or
+  non-2xx response.
+- `tessera.flows.UnknownProposalError` (subclass of `KeyError`) and
+  `tessera.flows.AlreadyResolvedError` (subclass of `RuntimeError`) — NOT
+  re-exported at top-level `tessera`; import from `tessera.flows`.
 
 ## Module-level
 
 - `tessera.program(fn)` → `Program` — decorator form of `Program(fn.__name__, fn=fn)`.
 - `tessera.engine_info()` → dict — what engine backs the SDK and its properties.
+- `tessera.webhook(url, payload, timeout=5.0, headers=None)` — see
+  `tessera.notify` above.
