@@ -1,5 +1,5 @@
 LAMINAR TESSERA SOFTWARE LICENSE AGREEMENT
-laminar-tessera 0.1.4 — Laminar Instruments
+laminar-tessera 0.1.5 — Laminar Instruments
 Created by Darreck L. Bender II, Founder, Laminar Instruments.
 Contact: darreck@laminarinstruments.com · laminarinstruments.com
 

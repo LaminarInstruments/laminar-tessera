@@ -20,11 +20,11 @@ Or install a specific wheel file directly. **Three wheels ship; never glob
 them together (`*.whl`) — pick the one matching `python3 --version` and OS:**
 ```bash
 python3 --version
-pip install laminar_tessera-0.1.4-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
+pip install laminar_tessera-0.1.5-cp313-cp313-macosx_10_13_universal2.whl   # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.4-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.5-cp311-cp311-macosx_26_0_arm64.whl        # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 Each wheel is built for exactly the CPython version/platform in its
 filename — verified to fail outright on any other with "not a supported
@@ -78,41 +78,113 @@ workflow contract below. If you forget, `run()` now raises
   `persistence=""` raises `ValueError` (it used to silently resolve to the cwd).
   Two writers saving the same `(name, persistence)` concurrently can raise
   `tessera.ConcurrentWriteError` — there is no multi-writer coordination; treat
-  any persisted name as single-writer.
+  any persisted name as single-writer. `save()` into a directory that doesn't
+  exist raises plain `FileNotFoundError` (create the directory first) —
+  distinct from `ConcurrentWriteError`, which means a writer collision, not a
+  missing path.
 - **agents:** `Program(name)` has **no built-in names**. With no body it records the
   run and folds `**kwargs` into state (`run(Program("x"), q=100)` ⇒ `state()["q"]==100`).
-  `fork()` is an isolated deep copy; it affects the original only after `commit(branch)`.
-  An `fn=`-form `Program`'s **return value is discarded** — `fn` must call
-  `field.observe(...)` itself to record anything; a non-`None` return now
-  triggers a `UserWarning` reminding you of this.
+  A `steps=[(opcode, kwargs), ...]` Program preflights every opcode name before
+  running any of them (an unknown opcode now raises `ValueError` with nothing
+  executed, not partway through); its per-operation results are logged into
+  the run event's payload under `"results"` (check this if a step like
+  `RESTORE_CHECKPOINT` can fail — its boolean return isn't raised as an error
+  on its own). `fork()` is an isolated deep copy; it affects the original only
+  after `commit(branch)`, which now **raises `ValueError`** if `branch` wasn't
+  forked from this same field (a different Space/Field) or if this field
+  changed since the fork (stale commit would otherwise silently discard
+  whatever happened in between) — pass `force=True` for a deliberate
+  whole-world replacement anyway. `observe()` validates every field BEFORE
+  writing any of them (a conversion failure, e.g. an int too big for `float()`,
+  used to leave earlier fields in this same call written with no log entry);
+  it also rejects two keys that collide once stringified (`observe({3:...,
+  "3":...})`). `state()`/`history()` return deep copies — mutating what they
+  return, or a dict you already passed to `observe()`, can no longer change
+  stored state. An `fn=`-form `Program`'s **return value is discarded** — `fn`
+  must call `field.observe(...)` itself to record anything; a non-`None`
+  return triggers a `UserWarning`.
 - **store:** `transaction()` commits on clean exit, **rolls back and re-raises on any
   exception**. It never swallows exceptions — wrap in try/except if you expect one.
-  `put(key, value)` stringifies `key` internally — `put(1, ...)` and
-  `put("1", ...)` now **raise `ValueError`** on the second call instead of
-  silently colliding; use one consistent key type per logical key.
-- **signals:** `measure` **appends**. `stats.std` is **population** std (`pstdev`).
-  `anomalies` threshold is in **standard deviations**. `gate` returns
-  `(escalate: bool, entropy: float)`. `entropy` is Shannon entropy (bits, 0–3) of an
-  **8-bin histogram** of the series — spread across the value range, not variance.
-  `stats()`/`anomalies()`/`correlate()` on a series with **no prior `measure()`
-  call now raise `ValueError`** (previously returned a fabricated
-  `{'n':1,'mean':0.0,'std':0.0}`-shaped result indistinguishable from real
-  data) — always `measure()` before reading. `correlate()` on series of
-  different lengths now raises `ValueError` instead of silently using the
-  overlapping prefix. Any numeric value with `abs(x) > 1e15` (plus NaN/Inf)
-  is silently sanitized to `0.0` at the shared dispatch sanitizer, the same
-  bucket as NaN/Inf, before it can ever poison a series' mean/std —
-  `stats()`/`anomalies()` raising `ArithmeticError` on overflow is a
-  defensive fallback only, not reachable via any known input.
+  Use `async with store.transaction():` (not `with`) for a block spanning
+  `await` points — it serializes concurrent transactions on the same Store via
+  a shared lock so two tasks' transactions can't interleave on the engine's
+  shared state. `save()` **raises `RuntimeError`** while a transaction is
+  still open on this Store (previously it wrote the in-progress, uncommitted
+  values straight to disk). `put(key, value)` stringifies `key` internally —
+  `put(1, ...)` and `put("1", ...)` **raise `ValueError`** on the second call
+  instead of silently colliding; `delete()` enforces the same type match (
+  `delete(1)` after `put("1", ...)` now raises instead of silently removing
+  the wrong entry). `value` is deep-copied on `put()`/`get()`/`items()` —
+  neither side can mutate the other's view. Tuples anywhere inside `value`
+  are normalized to lists immediately at `put()` (not only after a reload —
+  JSON has no tuple type). A dict `value` with two keys that collide once
+  stringified (e.g. `{1: 'a', '1': 'b'}`) raises `ValueError` at `put()`
+  instead of silently losing one on the next save.
+- **graph:** nodes **must be `str`** — `connect()` raises `ValueError` for
+  anything else (an int node round-trips fine in memory but loses its
+  identity on save/reload, since JSON object keys are always strings; a tuple
+  node gets silently converted to a list by the shared dispatch sanitizer and
+  the edge is dropped with no signal at all). `path()`/`reach()` return `None`
+  for an endpoint that was never `connect()`'d (previously an unregistered
+  `path(x, x)` returned a trivial one-node "path" before any membership
+  check). Equal-cost route selection is now a deterministic, documented
+  tie-break (neighbors visited in `sorted(key=str)` order) — stable across
+  processes and reloads, not dependent on Python's per-process hash seed.
+- **signals:** `measure` **appends**; `series` **must be a `str`** (an int/str
+  series pair that stringify the same silently merged on the next
+  save/reload otherwise) and raises `ValueError` for any reading with
+  `abs(value) > 1e15` (previously silently sanitized to `0.0` — a real,
+  accepted finite number quietly zeroed with no error; this cap is scoped to
+  `signals` specifically now, not every door's numbers — `store`/`agents`
+  preserve any finite float exactly). `stats.std` is **population** std
+  (`pstdev`). `anomalies`/`gate`'s `threshold` must be finite (and
+  `anomalies`' nonnegative) — both **raise `ValueError`** otherwise (a NaN
+  threshold previously got silently sanitized to `0.0`, which flagged nearly
+  everything as anomalous with no indication the call was invalid).
+  `stats()`/`anomalies()`/`correlate()` on a series with **no prior
+  `measure()` call raise `ValueError`** (previously returned a fabricated
+  `{'n':1,'mean':0.0,'std':0.0}`-shaped result). `correlate()` on series of
+  different lengths raises `ValueError`; on a **constant series (zero
+  variance)** it returns **`None`**, not `0.0` — `None` means undefined, not
+  "no correlation." Internally anchored (and rescaled) before computing
+  mean/std/covariance, so a huge common offset or a tiny common scale no
+  longer loses precision or underflows the result — this does not change any
+  value's meaning, only its numerical accuracy. `entropy()`'s 8-bin
+  histogram no longer raises `ZeroDivisionError` for a very small value span,
+  and no longer splits several EQUAL extreme-magnitude readings across
+  different bins (both were overflow/underflow edge cases in the binning
+  math, not anything about the entropy formula itself).
 - **workflow:** completed+checkpointed steps are **not re-run** on recovery
   (exactly-once *internal* state). External side effects are **not** exactly-once —
   a crash after an external action but before the checkpoint re-runs the step; use an
   **idempotency key** for external effects. Each step's return dict is stored under the
   **step name** in `ctx` (`ctx["reserve"]["held"]`, not `ctx["held"]` — this now
-  includes steps that returned `None`, stored as `None`, not omitted).
-  Registering two steps under the same name on one object now **raises
-  `ValueError`** (previously both ran their side effects; only the last
-  result was visible).
+  includes steps that returned `None`, stored as `None`, not omitted), and a
+  completed step's RESTORED result always **overrides** any conflicting field
+  the caller passed into `run(ctx)` — a resume reflects what actually
+  happened, not whatever the caller's `ctx` claims this time. Step results are
+  deep-copied going in and out — mutating a returned `ctx[name]` can no
+  longer corrupt the stored result. `add(name, fn)` requires `name` to be a
+  `str` (an int step name round-trips through persisted completion as a
+  string, so it silently re-ran on resume) and `fn` to be callable and
+  **not** an `async def` (its body would never actually run — nothing awaits
+  it; this is checked again on the RETURNED value too, so a sync wrapper that
+  returns a coroutine is also rejected, at `run()` time, before the step is
+  marked done). `add()` also **raises `ValueError`** if called while `run()`
+  is already executing on this object (registration is frozen during a run,
+  so a step's own callback can no longer register new work that escapes the
+  persisted manifest) and if two steps share a name on one object (previously
+  both ran; only the last result was visible). A resumed object's
+  not-yet-completed steps must be re-added in the **same relative order**
+  they were first registered in — `run()` raises `ValueError` otherwise
+  (previously steps silently executed out of their originally defined
+  sequence). `run()` raises `RuntimeError` if called reentrantly (e.g. a
+  step's own callback calling `run()` again on the same object — this used
+  to let the in-flight step's effects run twice). A step's return value must
+  be JSON-serializable — `run()` raises `TypeError` and marks nothing done
+  otherwise (previously an unserializable result could mark the step done
+  in memory while the subsequent `save()` failed, leaving memory and disk
+  permanently inconsistent within one process).
   **`.open()`/`.load()` alone does NOT resume anything** — they restore which
   steps already completed but not the Python step functions (never
   serializable). ALWAYS generate code that re-adds every step by the same
@@ -121,22 +193,59 @@ workflow contract below. If you forget, `run()` now raises
   forget, `run()` now raises `MissingWorkflowStepsError` (a `ValueError`
   subclass) naming exactly which step(s) are outstanding and unregistered,
   instead of silently skipping them.
+  **Known, documented (not changed) behaviors:** in-place edits to the `ctx`
+  dict INSIDE a step body are never durable — only each step's RETURNED
+  value is persisted; a later resumed step sees merged return values, not a
+  predecessor's direct `ctx` mutations. Resume is **step-name-based**: if you
+  re-register a step under the same name with genuinely different logic (a
+  changed approval threshold, a different policy version), an already-
+  completed step is still skipped and its OLD stored result is reused as-is
+  — if your application needs revalidation when the logic behind a step
+  changes, version the step name explicitly (e.g. `"approve_v2"`) or add your
+  own explicit check inside the step against the current policy/inputs
+  before trusting a restored result. The same applies to a resumed workflow
+  being re-driven with CHANGED input fields it never re-validates against an
+  earlier completed step's result (e.g. an approval keyed to an order's
+  contents) — if your step's effect must be bound to specific inputs, check
+  that binding yourself inside the step, or use a distinct workflow instance
+  per distinct input identity.
 - **replay:** `append` is write-only + durable; `reconstruct` derives state by folding
-  the reducer over events — never store derived state directly. Not
-  cryptographically tamper-evident — a hand-edited save file reloads and
-  reconstructs silently with no detection.
+  the reducer over events — never store derived state directly. `append()`
+  deep-copies and validates its event is JSON-serializable (including
+  rejecting NaN/Infinity, which Python's `json` module would otherwise
+  silently write as nonstandard tokens a strict JSON reader can't parse)
+  BEFORE adding it — a rejected event can no longer corrupt the log or block
+  a later valid append. `events()` returns deep copies — mutating a returned
+  event can no longer change stored history. `EventLog.load(path=...)` binds
+  further `append()`s to the actual path loaded from (previously they went to
+  the default name-derived path instead, invisible to anyone still reading
+  the file actually passed in). Not cryptographically tamper-evident — a
+  hand-edited save file reloads and reconstructs silently with no detection.
 - **baseline:** one `AdaptiveBaseline` instance tracks ONE scalar baseline —
   the engine's feedback state (alpha/beta/ema) is a single triple, not keyed
   by series (verified by probing the raw engine, not assumed). Open a
   separate named instance per thing tracked independently. `learn()` does
-  **not** auto-save (same as `store`/`signals`/`agents`). Use it instead of
-  `signals.anomalies()` when "normal" legitimately drifts over time or when
-  the signal is instability itself (flapping) rather than any single extreme
-  reading — both are cases `signals`' static mean/std structurally cannot
-  catch (verified in `apps/adaptive_baseline_monitor/`, not asserted).
-  `entropy_drift()`/`track_entropy()` inherit the same histogram-spread
-  caveat as `signals.entropy()` — not a severity score comparable across
-  different kinds of data.
+  **not** auto-save (same as `store`/`signals`/`agents`). `set_rate()` raises
+  `ValueError` for a non-finite alpha/beta (previously silently sanitized to
+  `0.0` with no error). `nudge(delta)` shifts the baseline by exactly `delta`
+  immediately (previously it fed `ema + delta` back through the EMA blend,
+  applying only `beta * delta` of the requested shift). `track_entropy()`/
+  `entropy_drift()` raise `ValueError` for an empty batch (an empty batch's
+  entropy is `0.0`, which previously silently ratcheted the baseline down to
+  0 and reported "improvement" even though nothing was observed). Use
+  `baseline` instead of `signals.anomalies()` when "normal" legitimately
+  drifts over time or when the signal is instability itself (flapping)
+  rather than any single extreme reading — both are cases `signals`' static
+  mean/std structurally cannot catch (verified in
+  `apps/adaptive_baseline_monitor/`, not asserted). `entropy_drift()`/
+  `track_entropy()` inherit the same histogram-spread caveat as
+  `signals.entropy()` — not a severity score comparable across different
+  kinds of data. **Known, documented (not changed) behavior:** a named
+  engine checkpoint (`CHECKPOINT_STATE`/`RESTORE_CHECKPOINT` opcodes) is
+  in-memory/session-scoped — it does NOT survive `save()`/`load()`, and a
+  checkpoint taken inside an open `store.transaction()` is NOT invalidated
+  by that transaction's later rollback (checkpoints are independent,
+  write-ahead-log-style audit points, not transaction-scoped).
 
 ## Determinism
 Same inputs ⇒ same outputs, every run. Safe to snapshot/replay. No randomness is

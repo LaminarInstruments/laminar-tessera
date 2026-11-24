@@ -18,11 +18,11 @@ Or install a specific wheel file directly:
 
 ```bash
 python3 --version                                         # check this FIRST — three wheels ship now
-pip install laminar_tessera-0.1.4-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
+pip install laminar_tessera-0.1.5-cp313-cp313-macosx_10_13_universal2.whl  # Python 3.13, any Mac
 # or:
-pip install laminar_tessera-0.1.4-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
+pip install laminar_tessera-0.1.5-cp311-cp311-macosx_26_0_arm64.whl       # Python 3.11, Apple Silicon only
 # or:
-pip install laminar_tessera-0.1.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
+pip install laminar_tessera-0.1.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl  # Python 3.12, Linux x86-64
 ```
 
 **Each wheel installs on exactly the Python version/platform in its
@@ -739,6 +739,65 @@ documentation literally (see Part 3 Recipe 7 Gotcha 2 and the error
 reference below):** `workflow`'s silent-skip-on-forgotten-step-registration,
 and silent double-execution when two steps share a name.
 
+### v0.1.5 — a 59-finding external qualification ledger, resolved
+
+An external qualification campaign ran 59 adversarial checks against every
+door and reported them as a numbered ledger (TS-01 through TS-59). 53 were
+fixed in code (reproduced with the exact check, root-caused, patched,
+re-verified); 6 were deliberate **documented, not changed** decisions where
+changing the behavior would have reversed an existing, reasoned design
+choice. All 53 fixes are folded into the per-door "Hard contracts" sections
+of `AGENTS.md` and the error-reference table below — summarized here by
+category rather than repeated findng-by-finding:
+
+- **Aliasing (the most repeated class of bug, ~10 findings across `store`,
+  `workflow`, `agents`, `replay`):** a value handed to `put()`/`observe()`/
+  `append()`/a step's return was stored BY REFERENCE, not by value — mutating
+  the caller's original dict after the call (or mutating a later `get()`/
+  `state()`/`history()`/`events()` result) silently changed what was
+  "already recorded." Every door now deep-copies on the way in AND out.
+- **Numerical precision on ill-conditioned inputs (`signals`):** a huge
+  common offset (e.g. `~1e14` with a small real signal on top) or a tiny
+  common scale (e.g. `~1e-200` values) lost enough floating-point precision
+  in `correlate()`/`anomalies()` to silently flip a sign, underflow a real
+  correlation to `0.0`, or misclassify an anomaly — fixed by anchoring (and,
+  for `correlate()`, also rescaling) the series internally before computing
+  mean/variance/covariance. This changes no value's meaning, only the
+  numerical path to it. `correlate()` on a constant (zero-variance) series
+  now returns `None` instead of an ambiguous `0.0`, and a near-perfect
+  correlation is clamped to exactly `[-1.0, 1.0]` instead of rounding a bit
+  past it.
+- **Identity-type safety (`graph`, `signals`, `store`, `workflow`):** several
+  doors silently accepted a node/series/step identifier whose type didn't
+  survive persistence (ints lose their type through JSON object keys; tuples
+  get silently converted to lists by the shared dispatch sanitizer). These
+  now raise eagerly at the call that accepts the identifier, instead of
+  losing data invisibly on the next save/reload.
+- **Transactional/rollback completeness (`store`, cross-door):** the
+  engine's transaction snapshot didn't include the event cache (replay
+  events, agent observation history), so rolling back a transaction that
+  also touched `agents`/`replay` left those records behind as if they'd
+  really happened. Now included in the snapshot/restore.
+- **Eager validation over silent sanitization (`signals`, `baseline`,
+  `workflow`, `agents`, `replay`):** several numeric/structural inputs that
+  used to be silently "fixed up" (a NaN threshold zeroed, an async callback's
+  un-awaited body treated as done, an unserializable workflow result marked
+  complete anyway) now raise clearly, before any state changes, instead of
+  producing a plausible-looking but wrong result.
+- **The 6 documented-only resolutions** (changing the code would have
+  reversed a reasoned existing design choice, so the choice is made explicit
+  instead): `workflow` step bodies' in-place `ctx` edits are not durable —
+  only the returned value is (Recipe 7); `workflow` resume is step-name-based
+  — a step re-registered with genuinely different logic, or re-driven with
+  changed inputs it never re-checks, still reuses its old stored result (an
+  integrator who needs revalidation should version the step name or add an
+  explicit binding check inside the step — see Recipe 7's idempotency-key
+  discussion for the same shape of problem); a named engine checkpoint
+  (`CHECKPOINT_STATE`/`RESTORE_CHECKPOINT`) is in-memory/session-scoped and
+  does not survive `save()`/`load()`, and is independent of
+  `store.transaction()` (not invalidated by that transaction's rollback) —
+  it is a write-ahead-log-style audit point, not transactional state.
+
 ## Part 4 — Error reference
 
 Every row below was triggered on purpose and the exact exception/behavior
@@ -760,7 +819,17 @@ recorded — not guessed from the method name.
 | `signals.stats()`/`anomalies()`/`correlate()` on a series never `measure()`'d | Raises `ValueError` — previously returned a fabricated `{'n':1,'mean':0.0,'std':0.0}`-shaped result |
 | `signals.correlate()` on series of different lengths | Raises `ValueError` — previously silently used the overlapping prefix |
 | Exception raised inside `store.transaction()` | Rolled back, then **re-raised** — never swallowed |
-| `signals.measure(series, [NaN, inf, 1e308, ...])`, `store.put(k, nan)`, `agents.observe({"x": nan})` | Silently sanitized to `0.0` per value, engine-wide (NaN/inf AND anything `\|x\| > 1e15`) — by design, not a bug |
+| `signals.measure(series, [NaN, inf])`, `store.put(k, nan)`, `agents.observe({"x": nan})` | NaN/inf silently sanitized to `0.0` per value, engine-wide — by design, not a bug |
+| `signals.measure(series, 1e16)` (or any `\|value\| > 1e15`) | Raises `ValueError` — previously silently sanitized to `0.0` engine-wide; now scoped to `signals` specifically (other doors, e.g. `store`, preserve any finite float exactly) |
+| `signals.measure(7, values)` / `graph.connect(1, 2)` | Raises `TypeError`/`ValueError` — series names and graph nodes must be `str`; a non-str identifier previously lost its identity on the next save/reload |
+| `signals.correlate()` on a constant (zero-variance) series | Returns `None` — previously an ambiguous `0.0`, ("no correlation" vs. "undefined") |
+| `signals.anomalies(series, float('nan'))` / `signals.gate(values, float('nan'))` | Raises `ValueError` — previously the threshold was silently sanitized to `0.0`, flagging nearly everything |
+| `store.save()` / `space.save()` while a `store.transaction()` is still open | Raises `RuntimeError` — previously wrote the uncommitted in-progress values straight to disk |
+| `workflow.add(1, fn)` (non-`str` name) / `workflow.add("x", 42)` (non-callable) / `workflow.add("x", some_async_def)` | Raises `TypeError` — previously an int name silently re-ran on resume, and an async step's body never actually executed while still being marked complete |
+| A workflow step's own callback calls `add()` or reentrant `run()` on the same object | Raises `ValueError`/`RuntimeError` — registration is frozen and reentrant runs are rejected while a `run()` is already executing |
+| A resumed workflow's not-yet-completed steps re-added in a different relative order than originally registered | Raises `ValueError` — previously executed out of the originally defined sequence |
+| A workflow step returns a value that isn't JSON-serializable | Raises `TypeError`, nothing marked done — previously could mark the step done in memory while the subsequent `save()` failed, leaving memory and disk inconsistent |
+| `agents.commit(branch)` where `branch` wasn't `fork()`'d from this field, or this field changed since the fork | Raises `ValueError` — previously silently merged, discarding whatever changed in between (or merging unrelated state); pass `force=True` to override deliberately |
 | `agents.Program(name, fn=...)`'s `fn` returns a non-`None` value | A `UserWarning` is raised (the value is still discarded — `fn` must call `field.observe()` itself) |
 | `workflow.run(ctx)` called again after a step already completed, with different `ctx` values | The already-completed step's stored result is unchanged; new input for that step is ignored until `reset()` |
 | `replay`/`workflow` writes made through `space.replay`/`space.workflow` without calling `space.save()` | Nothing is persisted — `Space` overrides their standalone auto-save (Part 2.2) |
